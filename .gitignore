@@ -1,0 +1,32 @@
+# ── Secrets — NEVER commit these ───────────────────────────────
+authorship-cpp/api_key.txt
+authorship-cpp/calss_gc_settings.json
+authorship-cpp/calss_gc_token.json
+authorship-cpp/calss_gc_embedded_credentials.json
+
+# ── Build artifacts ─────────────────────────────────────────────
+*.exe
+*.o
+*.obj
+build/
+bin/
+
+# ── Generated output (analysis results, may name real students) ─
+authorship-cpp/report.html
+authorship-cpp/similarity_report_*.html
+authorship-cpp/calss_audit.log
+authorship-cpp/profile.log
+
+# ── Student submission data (not committed — privacy) ───────────
+authorship-cpp/data/
+
+# ── Superseded manual backup (git history replaces this now) ────
+authorship-cpp/backup include + src/
+
+# ── OS files ──────────────────────────────────────────────────
+Thumbs.db
+.DS_Store
+
+# ── IDE (uncomment if these should stay untracked) ───────────────
+# .vscode/
+.idea/
