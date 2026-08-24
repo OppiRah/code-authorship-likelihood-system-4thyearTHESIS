@@ -16,6 +16,7 @@ g++ -std=c++17 ^
     src/gui_help_carousel.cpp ^
     src/gui_welcome.cpp ^
     src/gui_overview.cpp ^
+    src/gui_flagged.cpp ^
     -I include/ ^
     -lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus ^
     -o authorship.exe

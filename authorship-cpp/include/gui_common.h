@@ -10,8 +10,8 @@
 //   2. app-wide #defines (timer IDs, control IDs, custom WM_*)
 //   3. the design-system palette and layout constants
 //   4. types named in any cross-file signature or extern global
-//   5. extern declarations for the 66 cross-screen globals
-//   6. prototypes for the 57 cross-screen functions
+//   5. extern declarations for the 68 cross-screen globals
+//   6. prototypes for the 59 cross-screen functions
 //
 // Every gui_*.cpp includes this FIRST, before anything else, so
 // that all translation units see an identical preprocessor state
@@ -19,10 +19,13 @@
 //
 // Globals declared `extern` here are DEFINED exactly once each, but
 // NOT centralized in one file today — no gui_common.cpp exists yet.
-// Verified 2026-08-24: 50 of the 66 are still defined in gui.cpp;
+// Verified 2026-08-24: 52 of the 68 are still defined in gui.cpp;
 // the other 16 are defined in whichever split file owns that
 // subsystem (8 in gui_help_carousel.cpp, 4 in gui_sync_sheet.cpp,
-// 3 in gui_overview.cpp, 1 in gui_welcome.cpp). Adding an extern
+// 3 in gui_overview.cpp, 1 in gui_welcome.cpp) — none yet in
+// gui_flagged.cpp: its two promoted globals (g_expandedPairs,
+// g_pairSeverityFilter) stayed defined in gui.cpp, since code there
+// still needs them too. Adding an extern
 // here without a matching definition somewhere is an
 // undefined-reference link error; defining one in two places is a
 // duplicate-symbol link error. Neither shows up in a single-file
@@ -481,19 +484,24 @@ extern ClassesSortMode g_classesSortMode;
 extern RECT g_clearFilterButtonRect;
 extern std::vector<CollapsedPairRowRect> g_collapsedPairRowRects;
 extern std::vector<CopyFindingsBtnRect> g_copyFindingsBtnRects;
+extern int   g_copyFindingsFeedbackPairIdx;    // Checkpoint 2 of the ContentProc split
+extern DWORD g_copyFindingsFeedbackUntilTick;  // Checkpoint 2 of the ContentProc split
 extern std::vector<DnaCellHit> g_dnaCellHits;
 extern int g_dnaHoveredCell;
 extern std::vector<EmptyCardRect> g_emptyCardRects;
 extern RECT g_exactDuplicatesCardRect;
 extern std::vector<ExpandedPairHeaderRect> g_expandedPairHeaderRects;
+extern std::set<int> g_expandedPairs; // Checkpoint 2 of the ContentProc split
 extern bool g_filterExactDuplicatesOnly;
 extern std::vector<FlaggedAppearanceRowRect> g_flaggedAppearanceRowRects;
 extern int g_hoveredEmptyCard;
 extern bool g_langNoticeExpanded;
 extern RECT g_langNoticeToggleRect;
 extern std::map<int, PairAnimEntry> g_pairAnimating;
+extern PairSeverityFilter g_pairSeverityFilter; // Checkpoint 2 of the ContentProc split
 extern RECT g_reportButtonRect;
 extern std::vector<SeverityChipRect> g_severityChipRects;
+extern std::set<int> g_showAllFeaturesKeys; // Checkpoint 2 of the ContentProc split
 extern std::vector<ShowAllFeaturesRect> g_showAllFeaturesRects;
 extern RECT g_sortControlRect;
 extern bool g_statsAnimActive;
@@ -566,6 +574,9 @@ void selectBlockTab(HWND hwnd, int tabIdx);
 void clearExactDuplicatesFilter(HWND hwnd);
 void copyFindingsForPair(HWND hwnd, int pairIdx);
 int drawFlaggedPairs(HDC hdc, int x, int y, int width);
+// Checkpoint 2 of the ContentProc split:
+bool handleFlaggedPairsClick(HWND hwnd, int mx, int scrolledY);
+bool pairMatchesSeverityFilter(double combinedScorePct, PairSeverityFilter f);
 bool exportPairsToCsv(HWND hwnd);
 void jumpToFlaggedPair(HWND hwnd, int pairIndex);
 void selectSeverityFilter(HWND hwnd, PairSeverityFilter f);
