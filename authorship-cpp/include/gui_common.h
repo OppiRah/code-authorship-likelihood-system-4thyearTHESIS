@@ -17,11 +17,16 @@
 // that all translation units see an identical preprocessor state
 // (UNICODE/_UNICODE/WINVER in particular — see the note below).
 //
-// Globals declared `extern` here are DEFINED exactly once, in
-// gui_common.cpp. Adding an extern here without a matching
-// definition there is an undefined-reference link error; defining
-// one in two places is a duplicate-symbol link error. Neither
-// shows up in a single-file syntax check.
+// Globals declared `extern` here are DEFINED exactly once each, but
+// NOT centralized in one file today — no gui_common.cpp exists yet.
+// Verified 2026-08-24: 50 of the 66 are still defined in gui.cpp;
+// the other 16 are defined in whichever split file owns that
+// subsystem (8 in gui_help_carousel.cpp, 4 in gui_sync_sheet.cpp,
+// 3 in gui_overview.cpp, 1 in gui_welcome.cpp). Adding an extern
+// here without a matching definition somewhere is an
+// undefined-reference link error; defining one in two places is a
+// duplicate-symbol link error. Neither shows up in a single-file
+// syntax check.
 // ─────────────────────────────────────────────────────────────
 
 // Must be defined before any Windows header is pulled in. The sync
@@ -424,7 +429,10 @@ extern AnalysisResults g_analysisResults;
 extern void setAnalysisProgressCallback(AnalysisProgressCallback cb);
 
 // ─────────────────────────────────────────────────────────────
-// SHARED GLOBALS — declared here, DEFINED ONCE in gui_common.cpp
+// SHARED GLOBALS — declared here, DEFINED ONCE each, split across
+// gui.cpp and the gui_*.cpp files that own each subsystem (see the
+// top-of-file note above for the current breakdown). Not yet
+// centralized into a gui_common.cpp.
 // ─────────────────────────────────────────────────────────────
 extern HFONT g_hFontDisplay;
 extern HFONT g_hFontH1;
