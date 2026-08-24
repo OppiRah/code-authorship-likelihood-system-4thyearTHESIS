@@ -1971,39 +1971,9 @@ const wchar_t* pairSeverityLabel(double combinedScorePct) {
 }
 
 // ── Section drawers (return height used) ─────────────────────
-
-
-// Draw the header section (title bar with timestamp)
-static int drawResultsHeader(HDC hdc, int x, int y, int width) {
-    int startY = y;
-    const AnalysisResults& r = g_analysisResults;
-    SetBkMode(hdc, TRANSPARENT);
-
-    // Concept 3: Minimal floating card header, not a heavy maroon band
-    int cardH = S(72);
-    RECT card = {x + S(24), y + S(12), x + width - S(24), y + S(12) + cardH};
-    drawCard(hdc, card, BG_PANEL, BORDER_COLOR, 12, UL_MAROON);
-
-    // Small label "ANALYSIS REPORT" in gold uppercase
-    HFONT oldFont = (HFONT)SelectObject(hdc, g_hFontSmall);
-    SetTextColor(hdc, UL_GOLD);
-    RECT labelRect = {x + S(42), y + S(20), x + width - S(30), y + S(38)};
-    DrawTextW(hdc, L"ANALYSIS REPORT", -1, &labelRect,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-    // Timestamp + path in muted text
-    SetTextColor(hdc, TEXT_DIM);
-    RECT subRect = {x + S(42), y + S(40), x + width - S(30), y + S(58)};
-    std::wstring sub = L"Generated " + s2w(r.timestamp);
-    sub += L"  |  Data: " + s2w(r.dataFolder);
-    DrawTextW(hdc, sub.c_str(), -1, &subRect,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-
-    y += S(12) + cardH + S(8);
-    SelectObject(hdc, oldFont);
-    return y - startY;
-}
-
+// drawResultsHeader moved to gui_overview.cpp (Checkpoint 1 of the
+// ContentProc split) — it's Overview-page-only, alongside its two
+// siblings drawStatsDashboard/drawAISummary which were already there.
 
 // Draw the stats dashboard (6 cards in a grid)
 // Lightweight local mirror of main.cpp's extractStudentName() (which
@@ -3804,23 +3774,15 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                 }
             }
 
-            // Overview page: check for Exact Duplicates card click
-            if (g_currentPage == PAGE_OVERVIEW &&
-                g_analysisResults.exactDuplicates > 0)
-            {
-                if (mx >= g_exactDuplicatesCardRect.left &&
-                    mx < g_exactDuplicatesCardRect.right &&
-                    scrolledY >= g_exactDuplicatesCardRect.top &&
-                    scrolledY < g_exactDuplicatesCardRect.bottom)
-                {
-                    // Switch to Flagged Pairs tab with filter
-                    g_currentPage = PAGE_FLAGGED;
-                    g_filterExactDuplicatesOnly = true;
-                    g_selectedStudent = -1;
-                    g_scrollY = 0;
-                    InvalidateRect(hwnd, nullptr, FALSE);
-                    return 0;
-                }
+            // Overview page: exact-dup card, AI-summary deep-links,
+            // language-notice toggle, unclassified actions — all moved
+            // into gui_overview.cpp (Checkpoint 1 of the ContentProc
+            // split). Page-gated inside handleOverviewClick itself, same
+            // as every other per-page block here, so this check's
+            // position relative to the (page-mutually-exclusive) Students
+            // block right below is not behavior-relevant.
+            if (g_currentPage == PAGE_OVERVIEW) {
+                if (handleOverviewClick(hwnd, mx, scrolledY)) return 0;
             }
 
             // Student detail page: Flagged Appearances rows are
@@ -3837,44 +3799,6 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                         scrolledY >= row.r.top && scrolledY < row.r.bottom)
                     {
                         jumpToFlaggedPair(hwnd, row.flaggedPairIndex);
-                        return 0;
-                    }
-                }
-            }
-
-            // AI summary pair deep-links (spec §5.7) — the single
-            // highest-value interaction the brief calls out. Now also
-            // auto-expands the referenced pair (see comment above —
-            // same step-8 dependency, now resolved).
-            if (g_currentPage == PAGE_OVERVIEW && !g_aiSummaryLinkRects.empty()) {
-                for (const auto& link : g_aiSummaryLinkRects) {
-                    if (mx >= link.r.left && mx < link.r.right &&
-                        scrolledY >= link.r.top && scrolledY < link.r.bottom)
-                    {
-                        jumpToFlaggedPair(hwnd, link.pairIndex);
-                        return 0;
-                    }
-                }
-            }
-
-            // Overview page: language notice "Show files" toggle
-            if (g_currentPage == PAGE_OVERVIEW &&
-                !g_analysisResults.languageMismatchFiles.empty() &&
-                mx >= g_langNoticeToggleRect.left && mx < g_langNoticeToggleRect.right &&
-                scrolledY >= g_langNoticeToggleRect.top && scrolledY < g_langNoticeToggleRect.bottom)
-            {
-                g_langNoticeExpanded = !g_langNoticeExpanded;
-                InvalidateRect(hwnd, nullptr, FALSE);
-                return 0;
-            }
-
-            // Overview page: check for Unclassified file Assign/Delete clicks
-            if (g_currentPage == PAGE_OVERVIEW && !g_unclassifiedActionRects.empty()) {
-                for (const auto& action : g_unclassifiedActionRects) {
-                    if (mx >= action.x && mx < action.x + action.w &&
-                        scrolledY >= action.y && scrolledY < action.y + action.h)
-                    {
-                        handleUnclassifiedAction(hwnd, action.fileIdx, action.isDelete);
                         return 0;
                     }
                 }

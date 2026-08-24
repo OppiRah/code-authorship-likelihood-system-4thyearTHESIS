@@ -11,7 +11,7 @@
 //   3. the design-system palette and layout constants
 //   4. types named in any cross-file signature or extern global
 //   5. extern declarations for the 66 cross-screen globals
-//   6. prototypes for the 55 cross-screen functions
+//   6. prototypes for the 57 cross-screen functions
 //
 // Every gui_*.cpp includes this FIRST, before anything else, so
 // that all translation units see an identical preprocessor state
@@ -580,6 +580,9 @@ void helpCarouselSkip();
 void openHelpCarousel();
 int drawAISummary(HDC hdc, int x, int y, int width);
 int drawStatsDashboard(HDC hdc, int x, int y, int width);
+// Checkpoint 1 of the ContentProc split (see CLAUDE.md backlog):
+int drawResultsHeader(HDC hdc, int x, int y, int width);
+bool handleOverviewClick(HWND hwnd, int mx, int scrolledY);
 void activateSyncFocused();
 void onGoogleClassroom(HWND hwnd);
 void syncFocusMove(int delta);
