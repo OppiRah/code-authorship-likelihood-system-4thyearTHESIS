@@ -61,15 +61,22 @@ types/constants, function prototypes) for all of the above.
 matches the already-approved plan to leave it (and `SyncSheetProc`'s
 `WM_PAINT`) for a dedicated future session (see Backlog).
 
-**Open question, not resolved by this audit:** earlier revisions of this
-file described an approved 9-file split boundary, naming `gui_assign_dialog.cpp`
-specifically and saying `ContentProc` would eventually live in a
-`gui_common.cpp` (which doesn't exist yet — only `gui_common.h` does).
-`gui_help_carousel.cpp`, `gui_welcome.cpp`, and `gui_overview.cpp` are not
-mentioned in that original boundary description at all, so either the plan
-evolved past what was documented, or these three don't map onto the
-originally-approved 9. Flagging rather than guessing — confirm with
-whoever ran those checkpoints, or treat the 9-file boundary plan as stale.
+**Resolved (2026-08-24): no `gui_common.cpp`, and none is coming.** Earlier
+revisions of this file described an approved 9-file split boundary, naming
+`gui_assign_dialog.cpp` specifically and saying `ContentProc` would
+eventually live in a `gui_common.cpp`. That plan is superseded, not
+pending — decision made and final: `gui_common.cpp` consolidation is
+skipped. Of the 66 shared globals `gui_common.h` declares `extern`, 50 stay
+defined in `gui.cpp` and the other 16 stay defined in whichever split file
+already owns that subsystem (8 in `gui_help_carousel.cpp`, 4 in
+`gui_sync_sheet.cpp`, 3 in `gui_overview.cpp`, 1 in `gui_welcome.cpp`) —
+matching how the rest of the 5-file split already works, rather than being
+centralized into one new file. `gui_common.h` itself documents this
+breakdown directly (see its top-of-file note and the `SHARED GLOBALS`
+section header). `gui_help_carousel.cpp`, `gui_welcome.cpp`, and
+`gui_overview.cpp` were never part of the original 9-file boundary
+description — the current 5-file structure (see Backlog) is what actually
+governs going forward, not that stale sketch.
 
 **Build verification (2026-08-24):** full `x86_64-w64-mingw32-g++` syntax
 check across all 14 translation units, then a full link build using
@@ -133,15 +140,10 @@ were needed.
   something to force the codebase back toward. Five split files exist
   today (`gui_sync_sheet.cpp`, `gui_assign_dialog.cpp`,
   `gui_help_carousel.cpp`, `gui_welcome.cpp`, `gui_overview.cpp`), plus
-  `gui.cpp` and the `gui_common.h` contract.
-- **`gui_common.cpp` still gets created eventually, but scoped down**: it's
-  for the *definitions* backing `gui_common.h`'s extern globals (67
-  variables, verified 2026-08-24 — not 22 or any smaller earlier estimate)
-  plus any leftover shared logic that doesn't belong to one screen. It is
-  explicitly **not** a catch-all destination for `ContentProc` — confirmed
-  `gui_common.h` carries no `ContentProc` prototype or extern reference of
-  any kind (it's `static`, defined only in `gui.cpp:3274`), so there's
-  nothing there assuming otherwise.
+  `gui.cpp` and the `gui_common.h` contract. Decided 2026-08-24:
+  `gui_common.cpp` consolidation of the 66 shared globals is skipped —
+  they stay defined across `gui.cpp` and whichever split file already owns
+  that subsystem (see Current State above for the exact breakdown).
 - **Future dedicated session (not started): split `ContentProc`
   (~1,008 lines) AND `SyncSheetProc`'s `WM_PAINT`** — both have the same
   shape (one function branching across multiple unrelated
