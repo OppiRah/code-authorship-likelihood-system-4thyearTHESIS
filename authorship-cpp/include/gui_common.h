@@ -10,7 +10,7 @@
 //   2. app-wide #defines (timer IDs, control IDs, custom WM_*)
 //   3. the design-system palette and layout constants
 //   4. types named in any cross-file signature or extern global
-//   5. extern declarations for the 68 cross-screen globals
+//   5. extern declarations for the 72 cross-screen globals
 //   6. prototypes for the 59 cross-screen functions
 //
 // Every gui_*.cpp includes this FIRST, before anything else, so
@@ -19,13 +19,22 @@
 //
 // Globals declared `extern` here are DEFINED exactly once each, but
 // NOT centralized in one file today — no gui_common.cpp exists yet.
-// Verified 2026-08-24: 52 of the 68 are still defined in gui.cpp;
+// Verified 2026-08-25: 56 of the 72 are still defined in gui.cpp;
 // the other 16 are defined in whichever split file owns that
 // subsystem (8 in gui_help_carousel.cpp, 4 in gui_sync_sheet.cpp,
 // 3 in gui_overview.cpp, 1 in gui_welcome.cpp) — none yet in
-// gui_flagged.cpp: its two promoted globals (g_expandedPairs,
-// g_pairSeverityFilter) stayed defined in gui.cpp, since code there
-// still needs them too. Adding an extern
+// gui_flagged.cpp or gui_students.cpp: their promoted globals stayed
+// defined in gui.cpp, since code there still needs them too. Six of
+// the 56 gui.cpp-defined globals were promoted by the ContentProc
+// split's later checkpoints — g_copyFindingsFeedbackPairIdx,
+// g_copyFindingsFeedbackUntilTick, g_expandedPairs,
+// g_pairSeverityFilter, g_showAllFeaturesKeys (Checkpoint 2, Flagged
+// Pairs) and g_dnaTooltipPos (Checkpoint 3, Students) — see each
+// one's own inline comment below for which checkpoint added it.
+// (g_blockTabNames and g_backButtonRect also moved to
+// gui_students.cpp at Checkpoint 3, but aren't part of this count —
+// neither is extern-declared here, since nothing outside that file
+// references them.) Adding an extern
 // here without a matching definition somewhere is an
 // undefined-reference link error; defining one in two places is a
 // duplicate-symbol link error. Neither shows up in a single-file
