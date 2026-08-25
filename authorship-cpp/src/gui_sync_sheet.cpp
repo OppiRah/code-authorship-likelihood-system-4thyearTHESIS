@@ -498,6 +498,279 @@ static void syncDoneRunAnalysis() {
     closeSyncSheet();
     onRunAnalysis(g_hMainWindow);
 }
+// ── WM_PAINT state branches (Checkpoint 3 of the SyncSheetProc
+// split: WM_PAINT's 4-way if/else-if chain, extracted verbatim into
+// named helpers so WM_PAINT itself becomes a thin dispatcher on
+// g_syncState, same shape as ContentProc post-split). Bodies are
+// unchanged from the inline branches they came from.
+// ── STATE A: Connect ──────────────────────────────
+static void drawSyncConnectState(HDC hdc, const RECT& rc) {
+    SetTextColor(hdc, GRAY_200);
+    RECT body = {S(20), S(60), rc.right - S(20), S(180)};
+    DrawTextW(hdc,
+        L"1.  Sign in with the Google account used for Classroom\n"
+        L"2.  Grant CALSS permission to read your courses and rosters\n"
+        L"3.  Return here \u2014 the sheet advances automatically",
+        -1, &body, DT_LEFT | DT_WORDBREAK);
+
+    RECT btn = {S(20), rc.bottom - S(60), S(260), rc.bottom - S(20)};
+    g_syncPrimaryBtnRect = btn;
+    bool disabled = g_syncConnecting;
+    if (!disabled) {
+        addFocusable(g_syncSheetFocusables, FocusKind::SyncPrimaryBtn, btn, 0, false);
+    }
+    COLORREF bgc = disabled ? GRAY_800 : (g_syncHoverPrimary ? MAROON_600 : MAROON_700);
+    HBRUSH pb = CreateSolidBrush(bgc);
+    HPEN pp = CreatePen(PS_SOLID, 1, bgc);
+    HBRUSH ob = (HBRUSH)SelectObject(hdc, pb);
+    HPEN op = (HPEN)SelectObject(hdc, pp);
+    RoundRect(hdc, btn.left, btn.top, btn.right, btn.bottom, S(6), S(6));
+    SelectObject(hdc, ob); SelectObject(hdc, op);
+    DeleteObject(pb); DeleteObject(pp);
+    SetTextColor(hdc, disabled ? GRAY_500 : WHITE_);
+    DrawTextW(hdc, g_syncConnecting ? L"Waiting for browser\u2026" : L"Connect Google account",
+              -1, &btn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    // Cancel — visible in both sub-states now (previously
+    // only appeared once g_syncConnecting was true, leaving
+    // the initial screen with no visible way out at all).
+    // Same drawCard() secondary-button treatment used
+    // everywhere else in the app (matches AppModal's own
+    // secondary button exactly), replacing what used to be
+    // bare, unstyled text here.
+    RECT cancelR = {S(280), rc.bottom - S(60), S(420), rc.bottom - S(20)};
+    g_syncSecondaryBtnRect = cancelR;
+    addFocusable(g_syncSheetFocusables, FocusKind::SyncSecondaryBtn, cancelR, 0, false);
+    drawCard(hdc, cancelR, GRAY_800, GRAY_700, 8);
+    SetTextColor(hdc, GRAY_200);
+    DrawTextW(hdc, L"Cancel", -1, &cancelR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+// ── STATE B: Choose (tree is a real child control) ─
+static void drawSyncChooseState(HDC hdc, const RECT& rc, HWND hwnd) {
+    // Header controls — same ghost-chip treatment as
+    // "Exclude prelims" so all three read as buttons,
+    // not plain clickable text with no visible affordance.
+    SelectObject(hdc, g_hFontBodyNew);
+
+    SIZE saSz; GetTextExtentPoint32W(hdc, L"Select all", 10, &saSz);
+    RECT saR = {S(20), S(54), S(20) + saSz.cx + S(28), S(78)};
+    g_syncSelectAllRect = saR;
+    addFocusable(g_syncSheetFocusables, FocusKind::SyncSelectAll, saR, 0, false);
+    drawCard(hdc, saR, GRAY_800, GRAY_700, 12);
+    SetTextColor(hdc, GRAY_200);
+    DrawTextW(hdc, L"Select all", -1, &saR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    SIZE snSz; GetTextExtentPoint32W(hdc, L"Select none", 11, &snSz);
+    RECT snR = {saR.right + S(8), S(54), saR.right + S(8) + snSz.cx + S(28), S(78)};
+    g_syncSelectNoneRect = snR;
+    addFocusable(g_syncSheetFocusables, FocusKind::SyncSelectNone, snR, 0, false);
+    drawCard(hdc, snR, GRAY_800, GRAY_700, 12);
+    SetTextColor(hdc, GRAY_200);
+    DrawTextW(hdc, L"Select none", -1, &snR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    // Exclude-prelims toggle chip
+    RECT chip = {rc.right - S(200), S(54), rc.right - S(20), S(78)};
+    g_syncExcludeChipRect = chip;
+    addFocusable(g_syncSheetFocusables, FocusKind::SyncExcludePrelim, chip, 0, false);
+    COLORREF chipBg = g_syncExcludePrelim ? MAROON_700 : GRAY_800;
+    drawCard(hdc, chip, chipBg, g_syncExcludePrelim ? GOLD_500 : GRAY_700, 12);
+    SetTextColor(hdc, g_syncExcludePrelim ? WHITE_ : GRAY_400);
+    DrawTextW(hdc, L"Exclude prelims", -1, &chip, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    // The tree itself — a real native SysTreeView32 control,
+    // not a virtual hit-rect like everything else here. This
+    // stop hands real Win32 focus to it (see the main
+    // message loop) so the tree's own built-in keyboard
+    // handling (arrow keys navigate, Space toggles a check)
+    // takes over — not reimplemented here. Known limitation:
+    // once real focus is on the tree, further Tab presses
+    // aren't intercepted by this system (plain SysTreeView32
+    // has no built-in "Tab moves to next control" behavior
+    // without a dialog manager), so a keyboard user has to
+    // click elsewhere to return to this Tab order. Flagged,
+    // not fixed, per this pass's scope.
+    if (g_hSyncTree) {
+        // childRectInParent reads the REAL window rect,
+        // which syncSheetLayout() already positions using
+        // S()-scaled MoveWindow args — nothing further
+        // needed here for this one.
+        RECT treeR = childRectInParent(g_hSyncTree, hwnd);
+        addFocusable(g_syncSheetFocusables, FocusKind::SyncTree, treeR, 0, false);
+    }
+
+    // Destination path (below the tree — tree occupies 130..430)
+    SetTextColor(hdc, GRAY_400);
+    RECT destLbl = {S(20), S(438), S(120), S(458)};
+    DrawTextW(hdc, L"Save to:", -1, &destLbl, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, g_hFontMonoSm);
+    SetTextColor(hdc, GRAY_200);
+    RECT destPath = {S(120), S(438), rc.right - S(20), S(458)};
+    std::wstring shown = truncateMiddle(hdc, g_state.dataFolder.empty()
+        ? L"Documents\\CALSS_Classroom_Sync" : g_state.dataFolder,
+        (rc.right - S(20)) - S(120));
+    DrawTextW(hdc, shown.c_str(), -1, &destPath, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+    // Footer — live-recomputed label
+    SelectObject(hdc, g_hFontButton);
+    RECT btn = {S(20), rc.bottom - S(60), rc.right - S(140), rc.bottom - S(20)};
+    g_syncPrimaryBtnRect = btn;
+    std::wstring label = syncFooterLabel();
+    bool enabled = (label != L"Select at least one assignment");
+    if (enabled) {
+        addFocusable(g_syncSheetFocusables, FocusKind::SyncPrimaryBtn, btn, 0, false);
+    }
+    COLORREF bgc = !enabled ? GRAY_800 : (g_syncHoverPrimary ? MAROON_600 : MAROON_700);
+    HBRUSH pb = CreateSolidBrush(bgc);
+    HPEN pp = CreatePen(PS_SOLID, 1, bgc);
+    HBRUSH ob = (HBRUSH)SelectObject(hdc, pb);
+    HPEN op = (HPEN)SelectObject(hdc, pp);
+    RoundRect(hdc, btn.left, btn.top, btn.right, btn.bottom, S(6), S(6));
+    SelectObject(hdc, ob); SelectObject(hdc, op);
+    DeleteObject(pb); DeleteObject(pp);
+    SetTextColor(hdc, !enabled ? GRAY_500 : WHITE_);
+    DrawTextW(hdc, label.c_str(), -1, &btn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    RECT cancelR = {rc.right - S(120), rc.bottom - S(60), rc.right - S(20), rc.bottom - S(20)};
+    g_syncSecondaryBtnRect = cancelR;
+    addFocusable(g_syncSheetFocusables, FocusKind::SyncSecondaryBtn, cancelR, 0, false);
+    drawCard(hdc, cancelR, GRAY_800, GRAY_700, 8);
+    SetTextColor(hdc, GRAY_200);
+    DrawTextW(hdc, L"Cancel", -1, &cancelR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+// ── STATE C: Syncing (log list is a real child control) ─
+static void drawSyncSyncingState(HDC hdc, const RECT& rc) {
+    SetTextColor(hdc, GRAY_200);
+    RECT prog = {S(20), S(56), rc.right - S(20), S(76)};
+    std::wstring progTxt = std::to_wstring(g_syncDone) + L" / " +
+                           std::to_wstring(g_syncTotal);
+    SelectObject(hdc, g_hFontMono);
+    DrawTextW(hdc, progTxt.c_str(), -1, &prog, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+    // Determinate bar
+    int barY = S(82), barH = S(6);
+    RECT track = {S(20), barY, rc.right - S(20), barY + barH};
+    HBRUSH tb = CreateSolidBrush(GRAY_800);
+    FillRect(hdc, &track, tb); DeleteObject(tb);
+    int pct = g_syncTotal > 0 ? (g_syncDone * 100 / g_syncTotal) : 0;
+    int fillW = ((rc.right - S(40)) * pct) / 100;
+    if (fillW > 0) {
+        RECT fill = {S(20), barY, S(20) + fillW, barY + barH};
+        HBRUSH fb = CreateSolidBrush(GOLD_500);
+        FillRect(hdc, &fill, fb); DeleteObject(fb);
+    }
+
+    SelectObject(hdc, g_hFontBodyNew);
+    SetTextColor(hdc, GRAY_400);
+    RECT cur = {S(20), S(100), rc.right - S(20), S(122)};
+    std::wstring curTxt = truncateMiddle(hdc, g_syncCurrentLabel, rc.right - S(40));
+    DrawTextW(hdc, curTxt.c_str(), -1, &cur, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+    // "Run in background" — minimizes the sheet to a slim
+    // strip; the worker thread keeps running regardless,
+    // since sync is genuinely threaded (mirrors
+    // analysisThread), not just visually hidden.
+    RECT bgBtn = {S(20), rc.bottom - S(44), S(200), rc.bottom - S(16)};
+    g_syncMinimizeRect = bgBtn;
+    addFocusable(g_syncSheetFocusables, FocusKind::SyncMinimize, bgBtn, 0, false);
+    SetTextColor(hdc, GRAY_400);
+    SelectObject(hdc, g_hFontBodyNew);
+    DrawTextW(hdc, L"Run in background", -1, &bgBtn,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+}
+
+// ── STATE D: Done ──────────────────────────────────
+static void drawSyncDoneState(HDC hdc, const RECT& rc) {
+    SelectObject(hdc, g_hFontBodyNew);
+    SetTextColor(hdc, GRAY_200);
+
+    std::wstring summary =
+        L"Blocks synced: " + std::to_wstring(blocksSyncedG.size()) + L"\n" +
+        L"Assignments: " + std::to_wstring(totalAssignmentsSucceededG) +
+            L" / " + std::to_wstring(totalAssignmentsPlannedG) + L"\n" +
+        L"Files downloaded: " + std::to_wstring(totalFilesDownloadedG) + L"\n" +
+        L"Files now in sync folder: " + std::to_wstring(g_state.fileCount);
+    RECT sumR = {S(20), S(60), rc.right - S(20), S(160)};
+    DrawTextW(hdc, summary.c_str(), -1, &sumR, DT_LEFT | DT_WORDBREAK);
+
+    if (!assignmentsFailedG.empty()) {
+        SetTextColor(hdc, RISK_HIGH);
+        RECT failR = {S(20), S(168), rc.right - S(20), S(190)};
+        std::wstring t = std::to_wstring(assignmentsFailedG.size()) + L" assignment(s) failed to sync";
+        DrawTextW(hdc, t.c_str(), -1, &failR, DT_LEFT | DT_SINGLELINE);
+    }
+
+    SetTextColor(hdc, GRAY_500);
+    RECT tip = {S(20), S(220), rc.right - S(20), S(270)};
+    DrawTextW(hdc,
+        L"A subfolder was created for each synced block \u2014 drop extra "
+        L".c files into the matching folder and they'll be picked up "
+        L"on the next analysis.",
+        -1, &tip, DT_LEFT | DT_WORDBREAK);
+
+    SelectObject(hdc, g_hFontButton);
+    RECT runBtn = {S(20), rc.bottom - S(60), S(220), rc.bottom - S(20)};
+    g_syncPrimaryBtnRect = runBtn;
+    addFocusable(g_syncSheetFocusables, FocusKind::SyncPrimaryBtn, runBtn, 0, false);
+    COLORREF bgc = g_syncHoverPrimary ? MAROON_600 : MAROON_700;
+    HBRUSH pb = CreateSolidBrush(bgc);
+    HPEN pp = CreatePen(PS_SOLID, 1, bgc);
+    HBRUSH ob = (HBRUSH)SelectObject(hdc, pb);
+    HPEN op = (HPEN)SelectObject(hdc, pp);
+    RoundRect(hdc, runBtn.left, runBtn.top, runBtn.right, runBtn.bottom, S(6), S(6));
+    SelectObject(hdc, ob); SelectObject(hdc, op);
+    DeleteObject(pb); DeleteObject(pp);
+    SetTextColor(hdc, WHITE_);
+    DrawTextW(hdc, L"Run analysis", -1, &runBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    RECT closeBtn = {S(240), rc.bottom - S(60), S(340), rc.bottom - S(20)};
+    g_syncSecondaryBtnRect = closeBtn;
+    addFocusable(g_syncSheetFocusables, FocusKind::SyncSecondaryBtn, closeBtn, 0, false);
+    drawCard(hdc, closeBtn, GRAY_800, GRAY_700, 8);
+    SetTextColor(hdc, GRAY_200);
+    SelectObject(hdc, g_hFontBodyNew);
+    DrawTextW(hdc, L"Close", -1, &closeBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+// ── WM_LBUTTONDOWN state branches. Shares g_syncState-scoped
+// globals (g_syncPrimaryBtnRect etc.) with the draw functions
+// above, so split alongside them per the original audit's note.
+static void handleSyncConnectClick(HWND hwnd, const POINT& pt) {
+    if (PtInRect(&g_syncPrimaryBtnRect, pt) && !g_syncConnecting) {
+        syncConnectStart(hwnd);
+    } else if (PtInRect(&g_syncSecondaryBtnRect, pt)) {
+        closeSyncSheet();
+    }
+}
+
+static void handleSyncChooseClick(HWND hwnd, const POINT& pt) {
+    if (PtInRect(&g_syncSelectAllRect, pt)) {
+        syncSelectAllRows(hwnd);
+    } else if (PtInRect(&g_syncSelectNoneRect, pt)) {
+        syncSelectNoneRows(hwnd);
+    } else if (PtInRect(&g_syncExcludeChipRect, pt)) {
+        syncToggleExcludePrelim(hwnd);
+    } else if (PtInRect(&g_syncSecondaryBtnRect, pt)) {
+        closeSyncSheet();
+    } else if (PtInRect(&g_syncPrimaryBtnRect, pt)) {
+        syncChooseConfirm(hwnd);
+    }
+}
+
+static void handleSyncSyncingClick(HWND hwnd, const POINT& pt) {
+    if (PtInRect(&g_syncMinimizeRect, pt)) {
+        syncMinimizeSheet(hwnd);
+    }
+}
+
+static void handleSyncDoneClick(HWND hwnd, const POINT& pt) {
+    if (PtInRect(&g_syncPrimaryBtnRect, pt)) {
+        syncDoneRunAnalysis();
+    } else if (PtInRect(&g_syncSecondaryBtnRect, pt)) {
+        closeSyncSheet();
+    }
+}
 
 static LRESULT CALLBACK SyncSheetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -545,234 +818,17 @@ static LRESULT CALLBACK SyncSheetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
             SelectObject(hdc, g_hFontBodyNew);
 
-            // ── STATE A: Connect ──────────────────────────────
             if (g_syncState == SHEET_CONNECT) {
-                SetTextColor(hdc, GRAY_200);
-                RECT body = {S(20), S(60), rc.right - S(20), S(180)};
-                DrawTextW(hdc,
-                    L"1.  Sign in with the Google account used for Classroom\n"
-                    L"2.  Grant CALSS permission to read your courses and rosters\n"
-                    L"3.  Return here \u2014 the sheet advances automatically",
-                    -1, &body, DT_LEFT | DT_WORDBREAK);
-
-                RECT btn = {S(20), rc.bottom - S(60), S(260), rc.bottom - S(20)};
-                g_syncPrimaryBtnRect = btn;
-                bool disabled = g_syncConnecting;
-                if (!disabled) {
-                    addFocusable(g_syncSheetFocusables, FocusKind::SyncPrimaryBtn, btn, 0, false);
-                }
-                COLORREF bgc = disabled ? GRAY_800 : (g_syncHoverPrimary ? MAROON_600 : MAROON_700);
-                HBRUSH pb = CreateSolidBrush(bgc);
-                HPEN pp = CreatePen(PS_SOLID, 1, bgc);
-                HBRUSH ob = (HBRUSH)SelectObject(hdc, pb);
-                HPEN op = (HPEN)SelectObject(hdc, pp);
-                RoundRect(hdc, btn.left, btn.top, btn.right, btn.bottom, S(6), S(6));
-                SelectObject(hdc, ob); SelectObject(hdc, op);
-                DeleteObject(pb); DeleteObject(pp);
-                SetTextColor(hdc, disabled ? GRAY_500 : WHITE_);
-                DrawTextW(hdc, g_syncConnecting ? L"Waiting for browser\u2026" : L"Connect Google account",
-                          -1, &btn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-                // Cancel — visible in both sub-states now (previously
-                // only appeared once g_syncConnecting was true, leaving
-                // the initial screen with no visible way out at all).
-                // Same drawCard() secondary-button treatment used
-                // everywhere else in the app (matches AppModal's own
-                // secondary button exactly), replacing what used to be
-                // bare, unstyled text here.
-                RECT cancelR = {S(280), rc.bottom - S(60), S(420), rc.bottom - S(20)};
-                g_syncSecondaryBtnRect = cancelR;
-                addFocusable(g_syncSheetFocusables, FocusKind::SyncSecondaryBtn, cancelR, 0, false);
-                drawCard(hdc, cancelR, GRAY_800, GRAY_700, 8);
-                SetTextColor(hdc, GRAY_200);
-                DrawTextW(hdc, L"Cancel", -1, &cancelR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                drawSyncConnectState(hdc, rc);
             }
-
-            // ── STATE B: Choose (tree is a real child control) ─
             else if (g_syncState == SHEET_CHOOSE) {
-                // Header controls — same ghost-chip treatment as
-                // "Exclude prelims" so all three read as buttons,
-                // not plain clickable text with no visible affordance.
-                SelectObject(hdc, g_hFontBodyNew);
-
-                SIZE saSz; GetTextExtentPoint32W(hdc, L"Select all", 10, &saSz);
-                RECT saR = {S(20), S(54), S(20) + saSz.cx + S(28), S(78)};
-                g_syncSelectAllRect = saR;
-                addFocusable(g_syncSheetFocusables, FocusKind::SyncSelectAll, saR, 0, false);
-                drawCard(hdc, saR, GRAY_800, GRAY_700, 12);
-                SetTextColor(hdc, GRAY_200);
-                DrawTextW(hdc, L"Select all", -1, &saR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-                SIZE snSz; GetTextExtentPoint32W(hdc, L"Select none", 11, &snSz);
-                RECT snR = {saR.right + S(8), S(54), saR.right + S(8) + snSz.cx + S(28), S(78)};
-                g_syncSelectNoneRect = snR;
-                addFocusable(g_syncSheetFocusables, FocusKind::SyncSelectNone, snR, 0, false);
-                drawCard(hdc, snR, GRAY_800, GRAY_700, 12);
-                SetTextColor(hdc, GRAY_200);
-                DrawTextW(hdc, L"Select none", -1, &snR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-                // Exclude-prelims toggle chip
-                RECT chip = {rc.right - S(200), S(54), rc.right - S(20), S(78)};
-                g_syncExcludeChipRect = chip;
-                addFocusable(g_syncSheetFocusables, FocusKind::SyncExcludePrelim, chip, 0, false);
-                COLORREF chipBg = g_syncExcludePrelim ? MAROON_700 : GRAY_800;
-                drawCard(hdc, chip, chipBg, g_syncExcludePrelim ? GOLD_500 : GRAY_700, 12);
-                SetTextColor(hdc, g_syncExcludePrelim ? WHITE_ : GRAY_400);
-                DrawTextW(hdc, L"Exclude prelims", -1, &chip, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-                // The tree itself — a real native SysTreeView32 control,
-                // not a virtual hit-rect like everything else here. This
-                // stop hands real Win32 focus to it (see the main
-                // message loop) so the tree's own built-in keyboard
-                // handling (arrow keys navigate, Space toggles a check)
-                // takes over — not reimplemented here. Known limitation:
-                // once real focus is on the tree, further Tab presses
-                // aren't intercepted by this system (plain SysTreeView32
-                // has no built-in "Tab moves to next control" behavior
-                // without a dialog manager), so a keyboard user has to
-                // click elsewhere to return to this Tab order. Flagged,
-                // not fixed, per this pass's scope.
-                if (g_hSyncTree) {
-                    // childRectInParent reads the REAL window rect,
-                    // which syncSheetLayout() already positions using
-                    // S()-scaled MoveWindow args — nothing further
-                    // needed here for this one.
-                    RECT treeR = childRectInParent(g_hSyncTree, hwnd);
-                    addFocusable(g_syncSheetFocusables, FocusKind::SyncTree, treeR, 0, false);
-                }
-
-                // Destination path (below the tree — tree occupies 130..430)
-                SetTextColor(hdc, GRAY_400);
-                RECT destLbl = {S(20), S(438), S(120), S(458)};
-                DrawTextW(hdc, L"Save to:", -1, &destLbl, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-                SelectObject(hdc, g_hFontMonoSm);
-                SetTextColor(hdc, GRAY_200);
-                RECT destPath = {S(120), S(438), rc.right - S(20), S(458)};
-                std::wstring shown = truncateMiddle(hdc, g_state.dataFolder.empty()
-                    ? L"Documents\\CALSS_Classroom_Sync" : g_state.dataFolder,
-                    (rc.right - S(20)) - S(120));
-                DrawTextW(hdc, shown.c_str(), -1, &destPath, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-                // Footer — live-recomputed label
-                SelectObject(hdc, g_hFontButton);
-                RECT btn = {S(20), rc.bottom - S(60), rc.right - S(140), rc.bottom - S(20)};
-                g_syncPrimaryBtnRect = btn;
-                std::wstring label = syncFooterLabel();
-                bool enabled = (label != L"Select at least one assignment");
-                if (enabled) {
-                    addFocusable(g_syncSheetFocusables, FocusKind::SyncPrimaryBtn, btn, 0, false);
-                }
-                COLORREF bgc = !enabled ? GRAY_800 : (g_syncHoverPrimary ? MAROON_600 : MAROON_700);
-                HBRUSH pb = CreateSolidBrush(bgc);
-                HPEN pp = CreatePen(PS_SOLID, 1, bgc);
-                HBRUSH ob = (HBRUSH)SelectObject(hdc, pb);
-                HPEN op = (HPEN)SelectObject(hdc, pp);
-                RoundRect(hdc, btn.left, btn.top, btn.right, btn.bottom, S(6), S(6));
-                SelectObject(hdc, ob); SelectObject(hdc, op);
-                DeleteObject(pb); DeleteObject(pp);
-                SetTextColor(hdc, !enabled ? GRAY_500 : WHITE_);
-                DrawTextW(hdc, label.c_str(), -1, &btn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-                RECT cancelR = {rc.right - S(120), rc.bottom - S(60), rc.right - S(20), rc.bottom - S(20)};
-                g_syncSecondaryBtnRect = cancelR;
-                addFocusable(g_syncSheetFocusables, FocusKind::SyncSecondaryBtn, cancelR, 0, false);
-                drawCard(hdc, cancelR, GRAY_800, GRAY_700, 8);
-                SetTextColor(hdc, GRAY_200);
-                DrawTextW(hdc, L"Cancel", -1, &cancelR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                drawSyncChooseState(hdc, rc, hwnd);
             }
-
-            // ── STATE C: Syncing (log list is a real child control) ─
             else if (g_syncState == SHEET_SYNCING) {
-                SetTextColor(hdc, GRAY_200);
-                RECT prog = {S(20), S(56), rc.right - S(20), S(76)};
-                std::wstring progTxt = std::to_wstring(g_syncDone) + L" / " +
-                                       std::to_wstring(g_syncTotal);
-                SelectObject(hdc, g_hFontMono);
-                DrawTextW(hdc, progTxt.c_str(), -1, &prog, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-                // Determinate bar
-                int barY = S(82), barH = S(6);
-                RECT track = {S(20), barY, rc.right - S(20), barY + barH};
-                HBRUSH tb = CreateSolidBrush(GRAY_800);
-                FillRect(hdc, &track, tb); DeleteObject(tb);
-                int pct = g_syncTotal > 0 ? (g_syncDone * 100 / g_syncTotal) : 0;
-                int fillW = ((rc.right - S(40)) * pct) / 100;
-                if (fillW > 0) {
-                    RECT fill = {S(20), barY, S(20) + fillW, barY + barH};
-                    HBRUSH fb = CreateSolidBrush(GOLD_500);
-                    FillRect(hdc, &fill, fb); DeleteObject(fb);
-                }
-
-                SelectObject(hdc, g_hFontBodyNew);
-                SetTextColor(hdc, GRAY_400);
-                RECT cur = {S(20), S(100), rc.right - S(20), S(122)};
-                std::wstring curTxt = truncateMiddle(hdc, g_syncCurrentLabel, rc.right - S(40));
-                DrawTextW(hdc, curTxt.c_str(), -1, &cur, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-                // "Run in background" — minimizes the sheet to a slim
-                // strip; the worker thread keeps running regardless,
-                // since sync is genuinely threaded (mirrors
-                // analysisThread), not just visually hidden.
-                RECT bgBtn = {S(20), rc.bottom - S(44), S(200), rc.bottom - S(16)};
-                g_syncMinimizeRect = bgBtn;
-                addFocusable(g_syncSheetFocusables, FocusKind::SyncMinimize, bgBtn, 0, false);
-                SetTextColor(hdc, GRAY_400);
-                SelectObject(hdc, g_hFontBodyNew);
-                DrawTextW(hdc, L"Run in background", -1, &bgBtn,
-                          DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                drawSyncSyncingState(hdc, rc);
             }
-
-            // ── STATE D: Done ──────────────────────────────────
             else if (g_syncState == SHEET_DONE) {
-                SelectObject(hdc, g_hFontBodyNew);
-                SetTextColor(hdc, GRAY_200);
-
-                std::wstring summary =
-                    L"Blocks synced: " + std::to_wstring(blocksSyncedG.size()) + L"\n" +
-                    L"Assignments: " + std::to_wstring(totalAssignmentsSucceededG) +
-                        L" / " + std::to_wstring(totalAssignmentsPlannedG) + L"\n" +
-                    L"Files downloaded: " + std::to_wstring(totalFilesDownloadedG) + L"\n" +
-                    L"Files now in sync folder: " + std::to_wstring(g_state.fileCount);
-                RECT sumR = {S(20), S(60), rc.right - S(20), S(160)};
-                DrawTextW(hdc, summary.c_str(), -1, &sumR, DT_LEFT | DT_WORDBREAK);
-
-                if (!assignmentsFailedG.empty()) {
-                    SetTextColor(hdc, RISK_HIGH);
-                    RECT failR = {S(20), S(168), rc.right - S(20), S(190)};
-                    std::wstring t = std::to_wstring(assignmentsFailedG.size()) + L" assignment(s) failed to sync";
-                    DrawTextW(hdc, t.c_str(), -1, &failR, DT_LEFT | DT_SINGLELINE);
-                }
-
-                SetTextColor(hdc, GRAY_500);
-                RECT tip = {S(20), S(220), rc.right - S(20), S(270)};
-                DrawTextW(hdc,
-                    L"A subfolder was created for each synced block \u2014 drop extra "
-                    L".c files into the matching folder and they'll be picked up "
-                    L"on the next analysis.",
-                    -1, &tip, DT_LEFT | DT_WORDBREAK);
-
-                SelectObject(hdc, g_hFontButton);
-                RECT runBtn = {S(20), rc.bottom - S(60), S(220), rc.bottom - S(20)};
-                g_syncPrimaryBtnRect = runBtn;
-                addFocusable(g_syncSheetFocusables, FocusKind::SyncPrimaryBtn, runBtn, 0, false);
-                COLORREF bgc = g_syncHoverPrimary ? MAROON_600 : MAROON_700;
-                HBRUSH pb = CreateSolidBrush(bgc);
-                HPEN pp = CreatePen(PS_SOLID, 1, bgc);
-                HBRUSH ob = (HBRUSH)SelectObject(hdc, pb);
-                HPEN op = (HPEN)SelectObject(hdc, pp);
-                RoundRect(hdc, runBtn.left, runBtn.top, runBtn.right, runBtn.bottom, S(6), S(6));
-                SelectObject(hdc, ob); SelectObject(hdc, op);
-                DeleteObject(pb); DeleteObject(pp);
-                SetTextColor(hdc, WHITE_);
-                DrawTextW(hdc, L"Run analysis", -1, &runBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-                RECT closeBtn = {S(240), rc.bottom - S(60), S(340), rc.bottom - S(20)};
-                g_syncSecondaryBtnRect = closeBtn;
-                addFocusable(g_syncSheetFocusables, FocusKind::SyncSecondaryBtn, closeBtn, 0, false);
-                drawCard(hdc, closeBtn, GRAY_800, GRAY_700, 8);
-                SetTextColor(hdc, GRAY_200);
-                SelectObject(hdc, g_hFontBodyNew);
-                DrawTextW(hdc, L"Close", -1, &closeBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                drawSyncDoneState(hdc, rc);
             }
 
             SelectObject(hdc, oldFont);
@@ -809,36 +865,16 @@ static LRESULT CALLBACK SyncSheetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
 
             if (g_syncState == SHEET_CONNECT) {
-                if (PtInRect(&g_syncPrimaryBtnRect, pt) && !g_syncConnecting) {
-                    syncConnectStart(hwnd);
-                } else if (PtInRect(&g_syncSecondaryBtnRect, pt)) {
-                    closeSyncSheet();
-                }
+                handleSyncConnectClick(hwnd, pt);
             }
             else if (g_syncState == SHEET_CHOOSE) {
-                if (PtInRect(&g_syncSelectAllRect, pt)) {
-                    syncSelectAllRows(hwnd);
-                } else if (PtInRect(&g_syncSelectNoneRect, pt)) {
-                    syncSelectNoneRows(hwnd);
-                } else if (PtInRect(&g_syncExcludeChipRect, pt)) {
-                    syncToggleExcludePrelim(hwnd);
-                } else if (PtInRect(&g_syncSecondaryBtnRect, pt)) {
-                    closeSyncSheet();
-                } else if (PtInRect(&g_syncPrimaryBtnRect, pt)) {
-                    syncChooseConfirm(hwnd);
-                }
+                handleSyncChooseClick(hwnd, pt);
             }
             else if (g_syncState == SHEET_SYNCING) {
-                if (PtInRect(&g_syncMinimizeRect, pt)) {
-                    syncMinimizeSheet(hwnd);
-                }
+                handleSyncSyncingClick(hwnd, pt);
             }
             else if (g_syncState == SHEET_DONE) {
-                if (PtInRect(&g_syncPrimaryBtnRect, pt)) {
-                    syncDoneRunAnalysis();
-                } else if (PtInRect(&g_syncSecondaryBtnRect, pt)) {
-                    closeSyncSheet();
-                }
+                handleSyncDoneClick(hwnd, pt);
             }
             return 0;
         }
