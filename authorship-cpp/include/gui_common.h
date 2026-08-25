@@ -488,6 +488,7 @@ extern int   g_copyFindingsFeedbackPairIdx;    // Checkpoint 2 of the ContentPro
 extern DWORD g_copyFindingsFeedbackUntilTick;  // Checkpoint 2 of the ContentProc split
 extern std::vector<DnaCellHit> g_dnaCellHits;
 extern int g_dnaHoveredCell;
+extern POINT g_dnaTooltipPos; // Checkpoint 3 of the ContentProc split
 extern std::vector<EmptyCardRect> g_emptyCardRects;
 extern RECT g_exactDuplicatesCardRect;
 extern std::vector<ExpandedPairHeaderRect> g_expandedPairHeaderRects;
@@ -568,6 +569,12 @@ int drawBlockTabBar(HDC hdc, int x, int y, int width);
 int drawStudentDetailPage(HDC hdc, int x, int y, int width,
                                    int studentIdx);
 int drawStudentProfiles(HDC hdc, int x, int y, int width);
+// Checkpoint 3 of the ContentProc split:
+bool handleStudentsClick(HWND hwnd, int mx, int my);
+int drawStudentsPage(HDC hdc, int contentX, int contentY, int contentW,
+                      int pageContentStartY);
+void handleStudentsDetailMouseMove(HWND hwnd, int mx, int my);
+void drawStudentDnaTooltip(HDC hdc, const RECT& rect);
 void generateAndOpenStudentReport();
 void openStudentDetail(HWND hwnd, int studentIdx);
 void selectBlockTab(HWND hwnd, int tabIdx);
