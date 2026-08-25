@@ -17,72 +17,89 @@ extraction → KNN classification (K=3).
 
 ---
 
-## Current state (verified 2026-08-24)
+## Current state (verified 2026-08-25)
 
-The lineage split described in earlier revisions of this file (a file-split
-effort vs. a cleanup/bugfix session, diverged and unreconciled) has been
-resolved — both lines of work are present and merged on disk. Verified by
-grepping for markers unique to each lineage (`getULLoadingLogo`,
-`SPLASH_GOLD`, dead-code symbol names) and by a full compile:
+**The ContentProc/SyncSheetProc split initiative is complete.** Both of
+the app's two "one function branching across multiple unrelated
+screens/states inline" functions — `ContentProc` (by tab) and
+`SyncSheetProc` (by `SHEET_CONNECT/CHOOSE/SYNCING/DONE`) — have had their
+per-branch bodies extracted into named helper functions, so each proc
+itself is now a thin dispatcher (`if (state == X) helperForX(...);` ...)
+rather than a single long function mixing multiple screens' logic. This
+was the last item in the file-split Backlog; nothing further is planned
+here (see Backlog below — now empty of split work).
 
-- **Dead code removal confirmed gone**: `drawAllPairsTable`, `drawTableRow`,
-  `GCSettingsDlgProc`, `GCPickerDlgProc` (+ `GCPickerData` struct),
-  `createSimpleDialog`, `fmtDouble`, `toWideGC` + `toWide` macro,
-  `struct MDLine` + `parseAISummaryMarkdown`, `showLegacyHelpTextModal`,
-  dead globals `g_hProgressBar`, `g_hSyncProgressLbl` — zero hits except one
-  comment noting the removal.
-- **Named color constants** `SPLASH_GOLD` and `COLOR_SUCCESS_BG_ALT` are
-  defined in `include/gui_common.h` (kept deliberately separate from
-  `GOLD_500` / `COLOR_SUCCESS_BG` — still do not silently merge these).
-  `SPLASH_GOLD` is used from `gui_welcome.cpp`; `COLOR_SUCCESS_BG_ALT` is
-  still used from `gui.cpp`.
-- **`easeOutCubic(t)`** is centralized once in `include/gui_common.h`,
-  used from both `gui.cpp` and `gui_overview.cpp`.
-- **Splash screen flicker/perf fixes and `getULLoadingLogo()`** landed in
-  `gui_welcome.cpp` as part of the split, not left behind in `gui.cpp`.
+Four checkpoints got there:
 
-**File split is further along than previously documented.** Five split
-files now exist and are all wired into `compile.bat`, alongside
-`gui.cpp` itself:
+- **Checkpoint 1** (`2af31e1`): extracted `ContentProc`'s Overview branch
+  into `gui_overview.cpp` (`drawStatsDashboard`/`drawAISummary`/
+  `handleOverviewClick`, etc.).
+- **Checkpoint 2** (`f70740a`): extracted the Flagged Pairs branch into
+  `gui_flagged.cpp` (`drawFlaggedPairs`, `handleFlaggedPairsClick`, the
+  expand/collapse and copy-findings state).
+- **Checkpoint 3** (`3219494`): extracted the Students branch into
+  `gui_students.cpp` (block sub-tab bar, student card grid, per-student
+  detail page with style DNA strip and flagged-appearance deep-links).
+- **SyncSheetProc split** (`4d0143d`): approach (b), in-file extraction
+  only (no new file, no `compile.bat` change) — `SyncSheetProc`'s
+  `WM_PAINT` 4-way chain became `drawSyncConnectState`/
+  `drawSyncChooseState`/`drawSyncSyncingState`/`drawSyncDoneState`, and
+  its `WM_LBUTTONDOWN` 4-way chain became `handleSyncConnectClick`/
+  `handleSyncChooseClick`/`handleSyncSyncingClick`/`handleSyncDoneClick`,
+  all still living in `gui_sync_sheet.cpp`.
+
+Each checkpoint was verified the same way: full
+`x86_64-w64-mingw32-g++` link build against `compile.bat`'s exact file
+list (clean, zero errors, every time); one definition per moved/extracted
+symbol (none left behind in the file it was extracted from); byte/MD5
+diff of every extracted function body against the committed original
+(all identical, modulo the mechanical dedent and — once — an added
+parameter the build caught, see below).
+
+The file structure is now 7 split files, `gui.cpp`, and the
+`gui_common.h` contract, all wired into `compile.bat`:
 
 | File | Lines |
 |---|---|
-| `src/gui.cpp` | 6,226 |
-| `src/gui_sync_sheet.cpp` (`SyncSheetProc` + `sync*` helpers/threads) | 1,009 |
-| `src/gui_overview.cpp` | 676 |
+| `src/gui.cpp` | 3,981 |
+| `src/gui_flagged.cpp` | 1,363 |
+| `src/gui_sync_sheet.cpp` (`SyncSheetProc` + `sync*` helpers/threads) | 1,045 |
+| `src/gui_students.cpp` | 1,048 |
+| `src/gui_overview.cpp` | 785 |
 | `src/gui_help_carousel.cpp` | 646 |
 | `src/gui_welcome.cpp` | 505 |
 | `src/gui_assign_dialog.cpp` | 348 |
 
-`include/gui_common.h` holds the shared contract (extern globals, shared
-types/constants, function prototypes) for all of the above.
+`include/gui_common.h` (613 lines) holds the shared contract (extern
+globals, shared types/constants, function prototypes) for all of the
+above. `ContentProc` and `SyncSheetProc` themselves remain in `gui.cpp`
+and `gui_sync_sheet.cpp` respectively — only their per-branch bodies
+moved; the dispatchers are the intended end state, not a leftover.
 
-`ContentProc` (~1,008 lines) is still unsplit, living in `gui.cpp` — this
-matches the already-approved plan to leave it (and `SyncSheetProc`'s
-`WM_PAINT`) for a dedicated future session (see Backlog).
+**One real bug the split work caught, worth remembering as a pattern:**
+extracting `SyncSheetProc`'s `SHEET_CHOOSE` paint branch into
+`drawSyncChooseState` initially compiled clean at the syntax level but
+failed to link/compile because the extracted body called
+`childRectInParent(g_hSyncTree, hwnd)` — `hwnd` was implicitly in scope
+in the original nested block (it's `SyncSheetProc`'s own parameter) and
+the mechanical extraction missed that it needed to become an explicit
+parameter. Fixed by adding `HWND hwnd` to `drawSyncChooseState`'s
+signature and its one call site. The general lesson: when extracting an
+inline branch into a standalone function, grep the extracted body for
+every identifier and confirm each one is either a parameter, a global,
+or genuinely file-local — don't assume the enclosing function's own
+parameters transfer for free.
 
-**Resolved (2026-08-24): no `gui_common.cpp`, and none is coming.** Earlier
-revisions of this file described an approved 9-file split boundary, naming
-`gui_assign_dialog.cpp` specifically and saying `ContentProc` would
-eventually live in a `gui_common.cpp`. That plan is superseded, not
-pending — decision made and final: `gui_common.cpp` consolidation is
-skipped. Of the 66 shared globals `gui_common.h` declares `extern`, 50 stay
-defined in `gui.cpp` and the other 16 stay defined in whichever split file
-already owns that subsystem (8 in `gui_help_carousel.cpp`, 4 in
-`gui_sync_sheet.cpp`, 3 in `gui_overview.cpp`, 1 in `gui_welcome.cpp`) —
-matching how the rest of the 5-file split already works, rather than being
-centralized into one new file. `gui_common.h` itself documents this
-breakdown directly (see its top-of-file note and the `SHARED GLOBALS`
-section header). `gui_help_carousel.cpp`, `gui_welcome.cpp`, and
-`gui_overview.cpp` were never part of the original 9-file boundary
-description — the current 5-file structure (see Backlog) is what actually
-governs going forward, not that stale sketch.
-
-**Build verification (2026-08-24):** full `x86_64-w64-mingw32-g++` syntax
-check across all 14 translation units, then a full link build using
-`compile.bat`'s exact file list and libs — both clean, zero errors.
-`compile.bat` on disk already lists all 5 split `.cpp` files; no changes
-were needed.
+**No `gui_common.cpp`, and none is coming (decided 2026-08-24, still
+final).** Earlier revisions of this file described an approved 9-file
+split boundary naming `gui_assign_dialog.cpp` specifically and saying
+`ContentProc` would eventually live in a `gui_common.cpp`. That plan is
+superseded, not pending — `gui_common.cpp` consolidation is skipped.
+Shared globals stay defined in whichever `.cpp` file already owns that
+subsystem (`gui.cpp` for the majority, or the relevant split file) rather
+than being centralized into one new file. `gui_common.h` itself documents
+this breakdown directly (see its top-of-file note and the `SHARED
+GLOBALS` section header).
 
 ---
 
@@ -137,21 +154,19 @@ were needed.
 
 - **The current file structure is the plan going forward** — the original
   9-file/`gui_common.cpp`-hosts-`ContentProc` sketch is superseded, not
-  something to force the codebase back toward. Five split files exist
+  something to force the codebase back toward. Seven split files exist
   today (`gui_sync_sheet.cpp`, `gui_assign_dialog.cpp`,
-  `gui_help_carousel.cpp`, `gui_welcome.cpp`, `gui_overview.cpp`), plus
-  `gui.cpp` and the `gui_common.h` contract. Decided 2026-08-24:
-  `gui_common.cpp` consolidation of the 66 shared globals is skipped —
-  they stay defined across `gui.cpp` and whichever split file already owns
-  that subsystem (see Current State above for the exact breakdown).
-- **Future dedicated session (not started): split `ContentProc`
-  (~1,008 lines) AND `SyncSheetProc`'s `WM_PAINT`** — both have the same
-  shape (one function branching across multiple unrelated
-  screens/states inline: `ContentProc` by tab, `SyncSheetProc` by
-  `SHEET_CONNECT/CHOOSE/SYNCING/DONE`). Same extraction technique applies
-  to both; do them together. Every other "long function" in the file was
-  reviewed and found to be one cohesive job at length, not multiple jobs
-  tangled together — not worth splitting.
+  `gui_help_carousel.cpp`, `gui_welcome.cpp`, `gui_overview.cpp`,
+  `gui_flagged.cpp`, `gui_students.cpp`), plus `gui.cpp` and the
+  `gui_common.h` contract. Decided 2026-08-24: `gui_common.cpp`
+  consolidation of the shared globals is skipped — they stay defined
+  across `gui.cpp` and whichever split file already owns that subsystem
+  (see Current State above for the exact breakdown).
+- **The ContentProc/SyncSheetProc split is done** (see Current State
+  above) — both procs are now thin dispatchers over per-branch helper
+  functions. Every other "long function" in the file was reviewed
+  earlier and found to be one cohesive job at length, not multiple jobs
+  tangled together — not worth splitting further.
 - System requirements documentation for the thesis paper (min/recommended
   specs drafted; RAM figures need empirical verification before committing).
 - Deferred, no urgency: `WM_DPICHANGED` live rescaling, full keyboard-focus
@@ -187,8 +202,8 @@ be added manually.
 ## Key files
 `gui.cpp`, `gui_sync_sheet.cpp`, `gui_assign_dialog.cpp`,
 `gui_help_carousel.cpp`, `gui_welcome.cpp`, `gui_overview.cpp`,
-`gui_common.h`, `main.cpp`, `results_data.h`, `gemini.h`/`gemini.cpp`,
-`compile.bat`.
+`gui_flagged.cpp`, `gui_students.cpp`, `gui_common.h`, `main.cpp`,
+`results_data.h`, `gemini.h`/`gemini.cpp`, `compile.bat`.
 
 ## Assets
 `ulccslogo.png` — in-app seal (sidebar). `ulcclogoloadingscreen.png` —
