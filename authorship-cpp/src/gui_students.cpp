@@ -680,20 +680,15 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
     y += S(18);
 
     // ── COLLECT DATA ─────────────────────────────────────────
-    std::string slower = profile.name;
-    for (auto& c : slower) c = (char)tolower((unsigned char)c);
-    auto containsCI = [&](const std::string& h, const std::string& n) {
-        std::string hh = h;
-        for (auto& c : hh) c = (char)tolower((unsigned char)c);
-        return hh.find(n) != std::string::npos;
-    };
-
+    // Exact student-identity matching, same as studentsTabCache() —
+    // the old case-insensitive substring match put "LuisDizon"'s files
+    // and pairs on "Luis"'s page, disagreeing with the card's count.
     std::vector<std::string> files;
     std::set<std::string> seenFiles;
     for (const auto& pair : g_analysisResults.allPairs) {
-        if (containsCI(pair.filenameA, slower))
+        if (studentNameForFile(pair.filenameA) == profile.name)
             if (seenFiles.insert(pair.filenameA).second) files.push_back(pair.filenameA);
-        if (containsCI(pair.filenameB, slower))
+        if (studentNameForFile(pair.filenameB) == profile.name)
             if (seenFiles.insert(pair.filenameB).second) files.push_back(pair.filenameB);
     }
 
@@ -708,7 +703,7 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
     std::vector<std::pair<int,const PairAnalysisDisplay*>> related; // {flaggedPairs index, ptr}
     for (int fpi = 0; fpi < (int)g_analysisResults.flaggedPairs.size(); ++fpi) {
         const auto& fp = g_analysisResults.flaggedPairs[fpi];
-        if (containsCI(fp.filenameA, slower) || containsCI(fp.filenameB, slower))
+        if (fp.studentA.studentName == profile.name || fp.studentB.studentName == profile.name)
             related.push_back({fpi, &fp});
     }
 
