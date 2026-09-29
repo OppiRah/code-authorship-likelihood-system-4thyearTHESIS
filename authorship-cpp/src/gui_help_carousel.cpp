@@ -74,17 +74,17 @@ static const CarouselStep HELP_STEPS[10] = {
       L"Point CALSS at student code three ways: a folder, individual "
       L"files, or a live Google Classroom sync.",
       L"calss_help_01_load_submissions.png",
-      { {110, 300, 160, 60, L"", false},
-        {290, 300, 160, 60, L"", false},
-        {470, 300, 160, 60, L"", false} },
+      { {250, 135, 99, 66, L"", false},
+        {356, 135, 99, 66, L"", false},
+        {461, 135, 99, 66, L"", false} },
       false },
     // 2 — Run the analysis
     { L"Run the analysis",
       L"Decide on an AI summary up front, then run. No mid-flow "
       L"prompts to interrupt you.",
       L"calss_help_02_run_analysis.png",
-      { {120, 260, 220, 30, L"", false},
-        {120, 310, 220, 44, L"", false} },
+      { {58, 312, 113, 11, L"", false},
+        {58, 331, 113, 17, L"", false} },
       false },
     // 3 — Overview: the big picture
     { L"Overview \u2014 the big picture",
@@ -92,35 +92,35 @@ static const CarouselStep HELP_STEPS[10] = {
       L"count, and max score \u2014 the three numbers worth a glance "
       L"before anything else.",
       L"calss_help_03_overview_summary.png",
-      { {292, 90, 520, 110, L"", false} },
+      { {352, 139, 434, 59, L"", false} },
       false },
     // 4 — Overview: jump straight to a finding
     { L"Overview \u2014 jump straight to a finding",
       L"The AI briefing references specific pairs by name \u2014 click "
       L"one to open it directly in Flagged Pairs.",
       L"calss_help_04_overview_ai_briefing.png",
-      { {420, 220, 140, 22, L"Click here", false} },
+      { {347, 216, 22, 11, L"Click here", false} },
       false },
     // 5 — Classes: every student's fingerprint
     { L"Classes \u2014 every student's fingerprint",
       L"Each card carries a Style DNA strip \u2014 a glanceable "
       L"barcode of that student's coding habits.",
       L"calss_help_05_classes_grid.png",
-      { {90, 150, 130, 20, L"", false} },
+      { {162, 138, 38, 11, L"", false} },
       false },
     // 6 — Classes: a student's full profile
     { L"Classes \u2014 a student's full profile",
       L"Open any card for the full picture, including every pair "
       L"that student has appeared in as a flagged match.",
       L"calss_help_06_classes_student_detail.png",
-      { {430, 60, 140, 300, L"", false} },
+      { {503, 194, 148, 89, L"", false} },
       false },
     // 7 — Flagged Pairs: what needs a look
     { L"Flagged Pairs \u2014 what needs a look",
       L"Filter by severity to triage fast \u2014 High first, Moderate "
       L"when you have time.",
       L"calss_help_07_flagged_pairs_list.png",
-      { {60, 60, 360, 36, L"", false} },
+      { {183, 81, 99, 15, L"", false} },
       false },
     // 8 — Flagged Pairs: the side-by-side
     { L"Flagged Pairs \u2014 the side-by-side",
@@ -128,14 +128,14 @@ static const CarouselStep HELP_STEPS[10] = {
       L"block puts the features that actually mismatched front and "
       L"center.",
       L"calss_help_08_flagged_pairs_detail.png",
-      { {60, 180, 240, 140, L"", false} },
+      { {465, 263, 208, 91, L"", false} },
       false },
     // 9 — Generate a report
     { L"Generate a report",
       L"Turn any finding into a document you can hand a student or "
       L"attach to a case file.",
       L"calss_help_09_generate_report.png",
-      { {380, 20, 200, 34, L"", false} },
+      { {519, 27, 27, 11, L"", false} },
       false },
     // 10 — closing card (no screenshot — see the draw function)
     { L"You're set",
