@@ -88,6 +88,7 @@ void showToast(const std::wstring& text, ToastKind kind) {
 AppModal g_appModal;
 static RECT g_modalPrimaryBtnRect = {};
 static RECT g_modalSecondaryBtnRect = {};
+static RECT g_sourceViewCloseBtnRect = {}; // MODAL_SOURCE_VIEW's own close ("x") button
 // Keyboard focus (item 2): which of the modal's own buttons is
 // currently focused. Reset to the primary button whenever a modal
 // opens; Tab toggles it (see the main message loop); Enter activates
@@ -118,6 +119,73 @@ static void dismissAppModal(bool primaryPressed) {
     g_appModal = AppModal{};
     if (g_hContent) InvalidateRect(g_hContent, nullptr, FALSE);
     if (cb) cb(primaryPressed);
+}
+
+// ── "View source" feature: read cap ───────────────────────────────
+// Generous for a real student C submission (typically well under
+// 100KB) while still bounding the worst case so a pathological file
+// can't stall the paint loop or blow up memory. Whichever limit hits
+// first wins; either way sourceTruncated is set so the modal says so
+// explicitly instead of silently cutting off.
+static const std::streamsize SOURCE_VIEW_MAX_BYTES = 4 * 1024 * 1024;
+static const size_t          SOURCE_VIEW_MAX_LINES = 5000;
+
+// Opens the MODAL_SOURCE_VIEW modal for `path`, read-only — never
+// touches the analysis pipeline, purely a GUI-side file read for
+// display. If `path` can't be opened (the submission was moved,
+// deleted, or came from a Classroom folder that's since been
+// re-synced to different paths), the modal still opens, with
+// sourceMissing set and a fallback message shown instead of a crash
+// or a blank panel.
+void openSourceViewModal(const std::wstring& label, const std::wstring& subtitle,
+                          const std::string& path)
+{
+    AppModal m;
+    m.kind  = MODAL_SOURCE_VIEW;
+    m.title = label;
+
+    std::ifstream f(path, std::ios::binary);
+    if (!f) {
+        m.sourceMissing = true;
+        m.sourceSubtitle =
+            L"This file is no longer at the recorded location — it may "
+            L"have been moved, deleted, or the Classroom folder re-synced.";
+    } else {
+        // Read at most the cap, and only past it, so a pathological file
+        // never gets fully loaded into memory just to be truncated.
+        std::vector<char> buf((size_t)SOURCE_VIEW_MAX_BYTES);
+        f.read(buf.data(), SOURCE_VIEW_MAX_BYTES);
+        std::streamsize got = f.gcount();
+        bool truncated = false;
+        if (got == SOURCE_VIEW_MAX_BYTES) {
+            char probe;
+            if (f.read(&probe, 1)) truncated = true;
+        }
+
+        std::string lineBuf;
+        auto flushLine = [&]() {
+            if (m.sourceLines.size() >= SOURCE_VIEW_MAX_LINES) { truncated = true; return; }
+            // Strip a trailing \r (CRLF files) so lines don't show a
+            // stray box glyph at the end.
+            if (!lineBuf.empty() && lineBuf.back() == '\r') lineBuf.pop_back();
+            m.sourceLines.push_back(s2w(lineBuf));
+            lineBuf.clear();
+        };
+        for (std::streamsize i = 0; i < got; ++i) {
+            if (m.sourceLines.size() >= SOURCE_VIEW_MAX_LINES) { truncated = true; break; }
+            char c = buf[(size_t)i];
+            if (c == '\n') flushLine();
+            else lineBuf.push_back(c);
+        }
+        if (!lineBuf.empty() && m.sourceLines.size() < SOURCE_VIEW_MAX_LINES) flushLine();
+
+        m.sourceTruncated = truncated;
+        m.sourceSubtitle  = subtitle;
+    }
+
+    g_appModal = m;
+    g_modalFocusOnPrimary = true;
+    if (g_hContent) InvalidateRect(g_hContent, nullptr, FALSE);
 }
 
 
@@ -1368,6 +1436,14 @@ std::vector<ShowAllFeaturesRect> g_showAllFeaturesRects;
 // than starting as a single global and needing a later fix, same
 // shape as g_showAllFeaturesRects/g_dnaCellHits above.
 std::vector<CopyFindingsBtnRect> g_copyFindingsBtnRects;
+
+// ── "View source" button (Flagged Pairs, per authorship card) ────
+// Same per-item vector shape as g_copyFindingsBtnRects above. Defined
+// here rather than in gui_flagged.cpp to match how every other
+// Flagged-Pairs-owned hit-rect vector in this codebase is placed —
+// see gui_common.h's top-of-file note.
+std::vector<SourceViewBtnRect> g_sourceViewBtnRects;
+
 // Brief "Copied!" confirmation shown on the clicked pair's button.
 // Not static as of Checkpoint 2 of the ContentProc split: also read
 // by drawComparativeBox() in gui_flagged.cpp.
@@ -1558,10 +1634,161 @@ static void drawToasts(HDC hdcScreen, const RECT& viewport) {
     SelectObject(hdcScreen, oldFont);
 }
 
+// Shared geometry for the MODAL_SOURCE_VIEW card — computed the same
+// way by drawSourceViewModal (to draw/clip) and by ContentProc's
+// WM_MOUSEWHEEL/WM_LBUTTONDOWN handlers (to clamp scroll / hit-test
+// close), so the three stay in sync without duplicating magic numbers.
+// Fixed size, not text-measured — the whole reason this is a distinct
+// kind from MODAL_OK/MODAL_CONFIRM (see the ModalKind enum's comment).
+struct SourceViewGeom { RECT modal, header, body, closeBtn; int lineH; };
+static SourceViewGeom sourceViewGeometry(const RECT& viewport) {
+    SourceViewGeom g;
+    int modalW = S(860);
+    if (modalW > viewport.right - S(20)) modalW = viewport.right - S(20);
+    int modalH = viewport.bottom - S(60);
+    int minH = S(300);
+    if (modalH < minH) modalH = (viewport.bottom > minH) ? minH : viewport.bottom - S(10);
+
+    int mx = (viewport.right - modalW) / 2;
+    if (mx < S(10)) mx = S(10);
+    int my = (viewport.bottom - modalH) / 2;
+    if (my < S(10)) my = S(10);
+    g.modal = {mx, my, mx + modalW, my + modalH};
+
+    int headerH = S(60);
+    int footerH = S(24);
+    g.header = {g.modal.left, g.modal.top, g.modal.right, g.modal.top + headerH};
+    g.body   = {g.modal.left + S(20), g.header.bottom + S(8),
+                g.modal.right - S(20), g.modal.bottom - footerH};
+
+    int closeSz = S(28);
+    g.closeBtn = {g.modal.right - S(16) - closeSz, g.modal.top + S(16),
+                  g.modal.right - S(16), g.modal.top + S(16) + closeSz};
+
+    g.lineH = S(18);
+    return g;
+}
+
+// MODAL_SOURCE_VIEW's own draw path — fixed-size card, clipped and
+// independently scrolled body (g_appModal.sourceScrollY, not the
+// page's g_scrollY), monospace text, no syntax highlighting (see
+// CLAUDE.md's note on why: tokenizer.cpp's Token has no source
+// offset, so highlighting here would need a second, separate lexer).
+static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
+    SourceViewGeom geom = sourceViewGeometry(viewport);
+    drawCard(hdcScreen, geom.modal, GRAY_900, GRAY_700, 14, UL_GOLD);
+
+    SetBkMode(hdcScreen, TRANSPARENT);
+
+    HFONT oldFont = (HFONT)SelectObject(hdcScreen, g_hFontH2);
+    SetTextColor(hdcScreen, UL_GOLD);
+    RECT titleR = {geom.header.left + S(20), geom.header.top + S(10),
+                    geom.closeBtn.left - S(10), geom.header.top + S(32)};
+    DrawTextW(hdcScreen, g_appModal.title.c_str(), -1, &titleR,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+    SelectObject(hdcScreen, g_hFontSmall);
+    SetTextColor(hdcScreen, g_appModal.sourceMissing ? COLOR_WARNING : GRAY_400);
+    RECT subR = {geom.header.left + S(20), geom.header.top + S(34),
+                  geom.closeBtn.left - S(10), geom.header.bottom - S(4)};
+    DrawTextW(hdcScreen, g_appModal.sourceSubtitle.c_str(), -1, &subR,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+    HPEN divPen = CreatePen(PS_SOLID, 1, GRAY_700);
+    HPEN oldPen = (HPEN)SelectObject(hdcScreen, divPen);
+    MoveToEx(hdcScreen, geom.header.left, geom.header.bottom, nullptr);
+    LineTo(hdcScreen, geom.header.right, geom.header.bottom);
+    SelectObject(hdcScreen, oldPen);
+    DeleteObject(divPen);
+
+    // Close button
+    drawCard(hdcScreen, geom.closeBtn, GRAY_800, GRAY_700, 6);
+    SelectObject(hdcScreen, g_hFontBodyNew);
+    SetTextColor(hdcScreen, GRAY_200);
+    DrawTextW(hdcScreen, L"✕", -1, &geom.closeBtn,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    g_sourceViewCloseBtnRect = geom.closeBtn;
+
+    // Body — clipped to its rect so long lines/overflow can't bleed
+    // into the header or past the card, then either the missing-file
+    // fallback message or the scrolled, monospace source text.
+    HRGN clipRgn = CreateRectRgn(geom.body.left, geom.body.top,
+                                  geom.body.right, geom.body.bottom);
+    SelectClipRgn(hdcScreen, clipRgn);
+
+    if (g_appModal.sourceMissing) {
+        SelectObject(hdcScreen, g_hFontBodyNew);
+        SetTextColor(hdcScreen, COLOR_WARNING);
+        RECT msgR = geom.body;
+        DrawTextW(hdcScreen, g_appModal.sourceSubtitle.c_str(), -1, &msgR,
+                  DT_LEFT | DT_WORDBREAK);
+    } else {
+        SelectObject(hdcScreen, g_hFontMono);
+        SetTextColor(hdcScreen, GRAY_200);
+
+        int contentH = (int)g_appModal.sourceLines.size() * geom.lineH;
+        int viewportH = geom.body.bottom - geom.body.top;
+        int maxScroll = contentH - viewportH;
+        if (maxScroll < 0) maxScroll = 0;
+        if (g_appModal.sourceScrollY > maxScroll) g_appModal.sourceScrollY = maxScroll;
+        if (g_appModal.sourceScrollY < 0) g_appModal.sourceScrollY = 0;
+
+        int firstLine = g_appModal.sourceScrollY / geom.lineH;
+        int lineY = geom.body.top - (g_appModal.sourceScrollY % geom.lineH);
+        for (size_t i = (size_t)firstLine;
+             i < g_appModal.sourceLines.size() && lineY < geom.body.bottom;
+             ++i, lineY += geom.lineH)
+        {
+            RECT lr = {geom.body.left, lineY, geom.body.right, lineY + geom.lineH};
+            DrawTextW(hdcScreen, g_appModal.sourceLines[i].c_str(), -1, &lr,
+                      DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        }
+
+        // Simple scrollbar thumb on the body's right edge — visual
+        // confirmation there's more content, mirroring (not reusing;
+        // this HDC isn't an HWND) the native scrollbar on the main pane.
+        if (maxScroll > 0) {
+            int trackX = geom.body.right - S(6);
+            int thumbH = (contentH > 0)
+                ? (int)((double)viewportH * viewportH / contentH) : viewportH;
+            if (thumbH < S(24)) thumbH = S(24);
+            if (thumbH > viewportH) thumbH = viewportH;
+            int thumbY = geom.body.top + (int)((double)(viewportH - thumbH) *
+                          g_appModal.sourceScrollY / maxScroll);
+            RECT thumb = {trackX, thumbY, trackX + S(4), thumbY + thumbH};
+            HBRUSH tb = CreateSolidBrush(GRAY_500);
+            FillRect(hdcScreen, &thumb, tb);
+            DeleteObject(tb);
+        }
+    }
+
+    SelectClipRgn(hdcScreen, nullptr);
+    DeleteObject(clipRgn);
+
+    // Footer — line count / truncated notice, skipped when the file's
+    // missing (nothing to count).
+    if (!g_appModal.sourceMissing) {
+        SelectObject(hdcScreen, g_hFontSmall);
+        SetTextColor(hdcScreen, GRAY_500);
+        std::wstring footer = std::to_wstring(g_appModal.sourceLines.size()) + L" lines";
+        if (g_appModal.sourceTruncated)
+            footer += L"  ·  truncated — file exceeds the display limit, "
+                      L"showing a prefix only";
+        RECT footR = {geom.modal.left + S(20), geom.body.bottom + S(2),
+                       geom.modal.right - S(20), geom.modal.bottom - S(2)};
+        DrawTextW(hdcScreen, footer.c_str(), -1, &footR,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    }
+
+    SelectObject(hdcScreen, oldFont);
+}
+
 // Blocking modal overlay — scrim + centered card. For messages that
 // need an actual decision (MODAL_CONFIRM) or longer read-only content
-// (MODAL_OK: About, Quick Start Guide). Same hdcScreen/after-blit
-// pattern as drawToasts above.
+// (MODAL_OK: About, Quick Start Guide), and — since MODAL_SOURCE_VIEW
+// shares the scrim/gate but not the text-measured layout below — the
+// "View source" file viewer. Same hdcScreen/after-blit pattern as
+// drawToasts above.
 static void drawAppModal(HDC hdcScreen, const RECT& viewport) {
     if (g_appModal.kind == MODAL_NONE) return;
 
@@ -1570,6 +1797,11 @@ static void drawAppModal(HDC hdcScreen, const RECT& viewport) {
         g.SetSmoothingMode(SmoothingModeNone);
         SolidBrush scrim(Color(170, 10, 10, 12));
         g.FillRectangle(&scrim, 0, 0, viewport.right, viewport.bottom);
+    }
+
+    if (g_appModal.kind == MODAL_SOURCE_VIEW) {
+        drawSourceViewModal(hdcScreen, viewport);
+        return;
     }
 
     SetBkMode(hdcScreen, TRANSPARENT);
@@ -2122,6 +2354,20 @@ void copyFindingsForPair(HWND hwnd, int pairIdx) {
     InvalidateRect(hwnd, nullptr, FALSE);
 }
 
+// "View source" button click, Flagged Pairs. Resolves a
+// SourceViewBtnRect hit (pairIdx + which side) to the actual path —
+// PairAnalysisDisplay::pathA/pathB, threaded through from the pipeline
+// for exactly this — and opens it. Companion to copyFindingsForPair
+// above: same "look up flaggedPairs[pairIdx], act" shape.
+void openSourceViewForFlaggedPair(HWND /*hwnd*/, int pairIdx, bool isA) {
+    if (pairIdx < 0 || pairIdx >= (int)g_analysisResults.flaggedPairs.size())
+        return;
+    const auto& pr = g_analysisResults.flaggedPairs[pairIdx];
+    const std::string& path     = isA ? pr.pathA : pr.pathB;
+    const std::string& filename = isA ? pr.filenameA : pr.filenameB;
+    openSourceViewModal(s2w(filename), s2w(path), path);
+}
+
 void selectSeverityFilter(HWND hwnd, PairSeverityFilter f) {
     if (g_pairSeverityFilter == f) return;
     g_pairSeverityFilter = f;
@@ -2423,6 +2669,37 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             // always the primary one. Must come before every other
             // keyboard branch below, including search's own Esc.
             if (g_appModal.kind != MODAL_NONE) {
+                // MODAL_SOURCE_VIEW's own scroll keys — Esc still closes
+                // it (checked just below, unchanged), but arrows/Page/
+                // Home/End move sourceScrollY instead of falling through
+                // to page-scroll or being swallowed.
+                if (g_appModal.kind == MODAL_SOURCE_VIEW &&
+                    (wParam == VK_DOWN || wParam == VK_UP || wParam == VK_NEXT ||
+                     wParam == VK_PRIOR || wParam == VK_HOME || wParam == VK_END))
+                {
+                    RECT vp; GetClientRect(hwnd, &vp);
+                    SourceViewGeom geom = sourceViewGeometry(vp);
+                    int viewportH = geom.body.bottom - geom.body.top;
+                    int contentH = (int)g_appModal.sourceLines.size() * geom.lineH;
+                    int maxScroll = contentH - viewportH;
+                    if (maxScroll < 0) maxScroll = 0;
+
+                    int pos = g_appModal.sourceScrollY;
+                    if (wParam == VK_DOWN)       pos += geom.lineH * 3;
+                    else if (wParam == VK_UP)    pos -= geom.lineH * 3;
+                    else if (wParam == VK_NEXT)  pos += viewportH;
+                    else if (wParam == VK_PRIOR) pos -= viewportH;
+                    else if (wParam == VK_HOME)  pos = 0;
+                    else if (wParam == VK_END)   pos = maxScroll;
+                    if (pos < 0) pos = 0;
+                    if (pos > maxScroll) pos = maxScroll;
+
+                    if (pos != g_appModal.sourceScrollY) {
+                        g_appModal.sourceScrollY = pos;
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                    return 0;
+                }
                 if (wParam == VK_ESCAPE) {
                     dismissAppModal(false);
                     return 0;
@@ -2566,6 +2843,32 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
 
         case WM_MOUSEWHEEL: {
             int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+
+            // MODAL_SOURCE_VIEW gate — while it's open, the wheel scrolls
+            // its own independent sourceScrollY instead of the page's
+            // g_scrollY (the modal overlays a scrolled page; without this
+            // gate the wheel would scroll the hidden page behind it).
+            // Must come before the page-scroll logic below.
+            if (g_appModal.kind == MODAL_SOURCE_VIEW) {
+                RECT vp; GetClientRect(hwnd, &vp);
+                SourceViewGeom geom = sourceViewGeometry(vp);
+                int viewportH = geom.body.bottom - geom.body.top;
+                int contentH = (int)g_appModal.sourceLines.size() * geom.lineH;
+                int maxScroll = contentH - viewportH;
+                if (maxScroll < 0) maxScroll = 0;
+
+                int scrollAmount = (delta / WHEEL_DELTA) * 60;
+                int newPos = g_appModal.sourceScrollY - scrollAmount;
+                if (newPos < 0) newPos = 0;
+                if (newPos > maxScroll) newPos = maxScroll;
+
+                if (newPos != g_appModal.sourceScrollY) {
+                    g_appModal.sourceScrollY = newPos;
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                }
+                return 0;
+            }
+
             int scrollAmount = (delta / WHEEL_DELTA) * 80;
             int newPos = g_scrollY - scrollAmount;
 
@@ -2719,6 +3022,16 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             // unreachable until it's resolved. Must be the very first
             // check in this handler.
             if (g_appModal.kind != MODAL_NONE) {
+                // MODAL_SOURCE_VIEW has its own close button, not the
+                // primary/secondary pair below — handle and swallow here.
+                if (g_appModal.kind == MODAL_SOURCE_VIEW) {
+                    if (mx >= g_sourceViewCloseBtnRect.left && mx < g_sourceViewCloseBtnRect.right &&
+                        my >= g_sourceViewCloseBtnRect.top && my < g_sourceViewCloseBtnRect.bottom)
+                    {
+                        dismissAppModal(false);
+                    }
+                    return 0;
+                }
                 if (mx >= g_modalPrimaryBtnRect.left && mx < g_modalPrimaryBtnRect.right &&
                     my >= g_modalPrimaryBtnRect.top && my < g_modalPrimaryBtnRect.bottom)
                 {

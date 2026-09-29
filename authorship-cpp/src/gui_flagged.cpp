@@ -442,10 +442,39 @@ static int drawAuthorshipCard(HDC hdc, int x, int y, int width,
     DrawTextW(hdc, s2w(s.studentName).c_str(), -1, &nameRect,
               DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
-    // Filename
+    // "View source" — the confirmed motivating case (instructors were
+    // still manually opening the .c file to eyeball code even after
+    // seeing a flag). Drawn first so the filename rect below can be
+    // narrowed to leave room for it; resolved to an actual path at
+    // click time via g_analysisResults.flaggedPairs[pairIdx].pathA/B,
+    // not stored per-button, since PairAnalysisDisplay already carries
+    // it and AuthorshipDisplay doesn't need a second copy.
+    std::wstring srcBtnLabel = L"⛶  View source";
+    SelectObject(hdc, g_hFontSmall);
+    RECT measureSrcBtn = {0, 0, 0, 0};
+    DrawTextW(hdc, srcBtnLabel.c_str(), -1, &measureSrcBtn, DT_CALCRECT | DT_SINGLELINE);
+    int srcBtnW = measureSrcBtn.right - measureSrcBtn.left + S(24);
+    int srcBtnH = S(24);
+    int srcBtnX = x + width - S(15) - srcBtnW;
+    int srcBtnY = y + S(36);
+    RECT srcBtnRect = {srcBtnX, srcBtnY, srcBtnX + srcBtnW, srcBtnY + srcBtnH};
+
+    drawCard(hdc, srcBtnRect, GRAY_800, GOLD_500, 6);
+    SetTextColor(hdc, GOLD_500);
+    DrawTextW(hdc, srcBtnLabel.c_str(), -1, &srcBtnRect,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    SourceViewBtnRect svHit;
+    svHit.r = { srcBtnX, srcBtnY + g_scrollY, srcBtnX + srcBtnW, srcBtnY + srcBtnH + g_scrollY };
+    svHit.pairIdx = pairIdx;
+    svHit.isA = (side == 0);
+    g_sourceViewBtnRects.push_back(svHit);
+
+    // Filename — narrowed to end just before the button above instead
+    // of the full card width.
     SelectObject(hdc, g_hFontBodyNew);
     SetTextColor(hdc, GRAY_400);
-    RECT fileRect = {x + S(15), y + S(38), x + width - S(15), y + S(58)};
+    RECT fileRect = {x + S(15), y + S(38), srcBtnX - S(10), y + S(58)};
     DrawTextW(hdc, s2w(s.filename).c_str(), -1, &fileRect,
               DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
@@ -1016,6 +1045,7 @@ int drawFlaggedPairs(HDC hdc, int x, int y, int width)
     g_expandedPairHeaderRects.clear();
     g_showAllFeaturesRects.clear();
     g_copyFindingsBtnRects.clear();
+    g_sourceViewBtnRects.clear();
 
     // Count exact duplicates
     int exactCount = 0;
@@ -1328,6 +1358,21 @@ bool handleFlaggedPairsClick(HWND hwnd, int mx, int scrolledY) {
             }
         }
         if (hitCopy) return true;
+    }
+
+    // "View source" button
+    if (!g_sourceViewBtnRects.empty()) {
+        bool hitSrc = false;
+        for (const auto& btn : g_sourceViewBtnRects) {
+            if (mx >= btn.r.left && mx < btn.r.right &&
+                scrolledY >= btn.r.top && scrolledY < btn.r.bottom)
+            {
+                openSourceViewForFlaggedPair(hwnd, btn.pairIdx, btn.isA);
+                hitSrc = true;
+                break;
+            }
+        }
+        if (hitSrc) return true;
     }
 
     // Severity filter chip click (spec §5.9)

@@ -10,8 +10,8 @@
 //   2. app-wide #defines (timer IDs, control IDs, custom WM_*)
 //   3. the design-system palette and layout constants
 //   4. types named in any cross-file signature or extern global
-//   5. extern declarations for the 72 cross-screen globals
-//   6. prototypes for the 59 cross-screen functions
+//   5. extern declarations for the 73 cross-screen globals
+//   6. prototypes for the 60 cross-screen functions
 //
 // Every gui_*.cpp includes this FIRST, before anything else, so
 // that all translation units see an identical preprocessor state
@@ -19,14 +19,16 @@
 //
 // Globals declared `extern` here are DEFINED exactly once each, but
 // NOT centralized in one file today — no gui_common.cpp exists yet.
-// Verified 2026-08-25: 56 of the 72 are still defined in gui.cpp;
-// the other 16 are defined in whichever split file owns that
-// subsystem (8 in gui_help_carousel.cpp, 4 in gui_sync_sheet.cpp,
-// 3 in gui_overview.cpp, 1 in gui_welcome.cpp) — none yet in
-// gui_flagged.cpp or gui_students.cpp: their promoted globals stayed
-// defined in gui.cpp, since code there still needs them too. Six of
-// the 56 gui.cpp-defined globals were promoted by the ContentProc
-// split's later checkpoints — g_copyFindingsFeedbackPairIdx,
+// Verified 2026-09-29 (previously 2026-08-25: 56 of 72): 57 of the 73
+// are still defined in gui.cpp; the other 16 are defined in whichever
+// split file owns that subsystem (8 in gui_help_carousel.cpp, 4 in
+// gui_sync_sheet.cpp, 3 in gui_overview.cpp, 1 in gui_welcome.cpp) —
+// none yet in gui_flagged.cpp or gui_students.cpp: their promoted
+// globals stayed defined in gui.cpp, since code there still needs them
+// too — g_sourceViewBtnRects (View Source feature) followed that same
+// convention rather than starting a new one. Six of the 56
+// pre-existing gui.cpp-defined globals were promoted by the
+// ContentProc split's later checkpoints — g_copyFindingsFeedbackPairIdx,
 // g_copyFindingsFeedbackUntilTick, g_expandedPairs,
 // g_pairSeverityFilter, g_showAllFeaturesKeys (Checkpoint 2, Flagged
 // Pairs) and g_dnaTooltipPos (Checkpoint 3, Students) — see each
@@ -299,7 +301,15 @@ struct AppToast {
 // vector pattern used throughout this file (g_blockTabRects etc.).
 struct ToastRect { RECT r; int index; };
 
-enum ModalKind { MODAL_NONE, MODAL_OK, MODAL_CONFIRM };
+// MODAL_SOURCE_VIEW ("View source" feature): deliberately NOT reusing
+// MODAL_OK/MODAL_CONFIRM's layout — those size their card by
+// DT_CALCRECT-measuring `body` (fine for a sentence or two of About/
+// confirm text) and have no scroll state, which breaks on a real
+// source file. It shares AppModal/g_appModal/dismissAppModal's plumbing
+// (the WM_KEYDOWN Esc/Tab gate, the "a modal owns all input" WM_LBUTTONDOWN
+// gate) but drawAppModal/ContentProc branch on this kind for a fixed-size,
+// independently-scrollable card instead — see gui.cpp.
+enum ModalKind { MODAL_NONE, MODAL_OK, MODAL_CONFIRM, MODAL_SOURCE_VIEW };
 struct AppModal {
     ModalKind kind = MODAL_NONE;
     std::wstring title;
@@ -308,6 +318,15 @@ struct AppModal {
     std::wstring secondaryLabel;
     COLORREF accent = 0;
     std::function<void(bool)> onResult; // true = primary pressed, false = secondary/Esc
+
+    // MODAL_SOURCE_VIEW only, populated by openSourceViewModal() (gui.cpp).
+    // Kept on the same struct as the fields above rather than a parallel
+    // global, matching how MODAL_OK/MODAL_CONFIRM already share it.
+    std::vector<std::wstring> sourceLines;    // file content, split on line breaks
+    std::wstring               sourceSubtitle; // full path, or a fallback note if missing
+    bool sourceMissing   = false; // file couldn't be opened at render time
+    bool sourceTruncated = false; // file exceeded the read cap; sourceLines is a prefix
+    int  sourceScrollY   = 0;     // independent of the page's g_scrollY — see note above
 };
 
 static const int HELP_STEP_COUNT = 10;
@@ -406,6 +425,12 @@ struct ExpandedPairHeaderRect { RECT r; int pairIdx; };
 struct ShowAllFeaturesRect { RECT r; int key; };
 
 struct CopyFindingsBtnRect { RECT r; int pairIdx; };
+
+// "View source" button, one per side of a flagged pair's authorship
+// card (Flagged Pairs tab). isA picks PairAnalysisDisplay::pathA vs
+// pathB/filenameA vs filenameB at click time — same shape as every
+// other per-item hit-rect vector in this file.
+struct SourceViewBtnRect { RECT r; int pairIdx; bool isA; };
 
 
 struct DnaStripStyle {
@@ -514,6 +539,7 @@ extern std::vector<SeverityChipRect> g_severityChipRects;
 extern std::set<int> g_showAllFeaturesKeys; // Checkpoint 2 of the ContentProc split
 extern std::vector<ShowAllFeaturesRect> g_showAllFeaturesRects;
 extern RECT g_sortControlRect;
+extern std::vector<SourceViewBtnRect> g_sourceViewBtnRects;
 extern bool g_statsAnimActive;
 extern DWORD g_statsAnimStartTick;
 extern std::vector<StudentCardRect> g_studentCardRects;
@@ -589,6 +615,7 @@ void openStudentDetail(HWND hwnd, int studentIdx);
 void selectBlockTab(HWND hwnd, int tabIdx);
 void clearExactDuplicatesFilter(HWND hwnd);
 void copyFindingsForPair(HWND hwnd, int pairIdx);
+void openSourceViewForFlaggedPair(HWND hwnd, int pairIdx, bool isA);
 int drawFlaggedPairs(HDC hdc, int x, int y, int width);
 // Checkpoint 2 of the ContentProc split:
 bool handleFlaggedPairsClick(HWND hwnd, int mx, int scrolledY);
@@ -597,6 +624,13 @@ bool exportPairsToCsv(HWND hwnd);
 void jumpToFlaggedPair(HWND hwnd, int pairIndex);
 void selectSeverityFilter(HWND hwnd, PairSeverityFilter f);
 void togglePairExpanded(HWND hwnd, int pairIdx);
+// "View source" feature (defined in gui.cpp, alongside the rest of the
+// AppModal subsystem it extends): reads `path` off disk (capped, with a
+// missing-file fallback — see the function's own comment), then opens
+// it as a MODAL_SOURCE_VIEW modal. `label`/`subtitle` are shown as the
+// modal's title/subtitle regardless of whether the read succeeded.
+void openSourceViewModal(const std::wstring& label, const std::wstring& subtitle,
+                          const std::string& path);
 void toggleShowAllFeatures(HWND hwnd, int key);
 void closeHelpCarousel();
 void drawHelpCarousel(HDC hdcScreen, const RECT& viewport);

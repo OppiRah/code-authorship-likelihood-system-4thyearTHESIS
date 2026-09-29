@@ -53,6 +53,13 @@ struct AuthorshipDisplay {
 struct PairAnalysisDisplay {
     std::string filenameA;
     std::string filenameB;
+    // Full disk paths, threaded through from PairResult::pathA/pathB
+    // (similarity.h) purely for the read-only "View source" modal —
+    // never used in scoring. Empty is a valid value (e.g. if the
+    // pipeline changes upstream); the GUI must treat that as "path
+    // unavailable" rather than assuming it's always populated.
+    std::string pathA;
+    std::string pathB;
     double      tokenScore;
     double      styleScore;
     double      combinedScore;

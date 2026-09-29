@@ -2111,6 +2111,8 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
         PairAnalysisDisplay disp;
         disp.filenameA      = pair.studentA;
         disp.filenameB      = pair.studentB;
+        disp.pathA          = pair.pathA;
+        disp.pathB          = pair.pathB;
         disp.tokenScore     = pair.tokenScore;
         disp.styleScore     = pair.styleScore;
         disp.combinedScore  = pair.combinedScore;
