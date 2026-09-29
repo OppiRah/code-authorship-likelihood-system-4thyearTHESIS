@@ -310,6 +310,24 @@ struct ToastRect { RECT r; int index; };
 // gate) but drawAppModal/ContentProc branch on this kind for a fixed-size,
 // independently-scrollable card instead — see gui.cpp.
 enum ModalKind { MODAL_NONE, MODAL_OK, MODAL_CONFIRM, MODAL_SOURCE_VIEW };
+
+// One file's worth of MODAL_SOURCE_VIEW state. In compare mode (opened
+// from a flagged pair) the side currently shown lives in AppModal's own
+// source* fields — so the single-file draw/scroll code paths read it
+// unchanged — and the other side is parked in AppModal::sourceOther;
+// switching files std::swaps the two (swapSourceViewSide, gui.cpp).
+struct SourceViewSide {
+    std::wstring title;
+    std::vector<std::wstring> lines;
+    std::wstring subtitle;
+    bool missing   = false;
+    bool truncated = false;
+    int  scrollY   = 0;
+    std::vector<int>  partner;   // per line: matched line index in the other file, or -1
+    std::vector<char> highlight; // per line: 1 = draw with the match highlight
+    std::vector<int>  runStarts; // first line of each matched run (next/prev match jumps)
+};
+
 struct AppModal {
     ModalKind kind = MODAL_NONE;
     std::wstring title;
@@ -327,6 +345,19 @@ struct AppModal {
     bool sourceMissing   = false; // file couldn't be opened at render time
     bool sourceTruncated = false; // file exceeded the read cap; sourceLines is a prefix
     int  sourceScrollY   = 0;     // independent of the page's g_scrollY — see note above
+
+    // MODAL_SOURCE_VIEW compare mode only (openSourceCompareModal) —
+    // display-only line matching between a flagged pair's two files,
+    // never fed back into scoring. See SourceViewSide above for how the
+    // active/parked sides are held.
+    bool sourceCompare = false;
+    int  sourceSide    = 0;          // 0 = File A shown, 1 = File B shown
+    std::vector<int>  sourcePartner;
+    std::vector<char> sourceHighlight;
+    std::vector<int>  sourceRunStarts;
+    int  sourceMatchCount = 0;       // matched significant lines per side
+    std::wstring sourceCompareNote;  // why highlighting is unavailable, if it is
+    SourceViewSide sourceOther;
 };
 
 static const int HELP_STEP_COUNT = 10;
@@ -631,6 +662,11 @@ void togglePairExpanded(HWND hwnd, int pairIdx);
 // modal's title/subtitle regardless of whether the read succeeded.
 void openSourceViewModal(const std::wstring& label, const std::wstring& subtitle,
                           const std::string& path);
+// Compare-mode variant (Flagged Pairs): loads both files, computes the
+// display-only line matches, and opens showing side A or B.
+void openSourceCompareModal(const std::string& pathA, const std::wstring& labelA,
+                             const std::string& pathB, const std::wstring& labelB,
+                             bool showA);
 void toggleShowAllFeatures(HWND hwnd, int key);
 void closeHelpCarousel();
 void drawHelpCarousel(HDC hdcScreen, const RECT& viewport);

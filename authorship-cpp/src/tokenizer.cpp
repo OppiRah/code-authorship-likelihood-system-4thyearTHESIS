@@ -327,6 +327,31 @@ std::pair<std::string,std::string> classifySimilarity(double score) {
     return              {"Minimal Similarity",  "#9090b0"};
 }
 
+bool normalizeSourceLines(const std::string& source,
+                          std::vector<std::vector<std::string>>& out) {
+    out.clear();
+    std::string cleaned = stripBlockComments(source);
+    cleaned = stripLineComments(cleaned);
+    cleaned = replaceStringLiterals(cleaned);
+    if (std::count(cleaned.begin(), cleaned.end(), '\n') !=
+        std::count(source.begin(), source.end(), '\n'))
+        return false;
+    cleaned = stripPreprocessor(cleaned);
+
+    size_t start = 0;
+    while (start <= cleaned.size()) {
+        size_t nl = cleaned.find('\n', start);
+        std::string line = cleaned.substr(start,
+            nl == std::string::npos ? std::string::npos : nl - start);
+        std::vector<std::string> ids;
+        std::map<std::string,int> kw;
+        out.push_back(normalizeTokens(extractTokens(line), ids, kw));
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+    }
+    return true;
+}
+
 // ── Self-test (run tokenizer.cpp directly) ────────────────────
 // Uncomment main below and compile with:
 // g++ tokenizer.cpp -o tokenizer_test.exe -std=c++17

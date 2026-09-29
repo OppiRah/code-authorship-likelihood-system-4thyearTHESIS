@@ -89,6 +89,16 @@ AppModal g_appModal;
 static RECT g_modalPrimaryBtnRect = {};
 static RECT g_modalSecondaryBtnRect = {};
 static RECT g_sourceViewCloseBtnRect = {}; // MODAL_SOURCE_VIEW's own close ("x") button
+// MODAL_SOURCE_VIEW compare mode's toolbar hit rects (empty when not
+// shown / not clickable) — set by drawSourceViewModal each paint.
+static RECT g_sourceViewTabRects[2] = {};
+static RECT g_sourceViewPrevRect = {};
+static RECT g_sourceViewNextRect = {};
+// Compare-mode match highlight: dark red fill, bright red left bar,
+// light text — readable on the modal's GRAY_900 card.
+static const COLORREF SOURCE_MATCH_BG   = RGB(104, 26, 32);
+static const COLORREF SOURCE_MATCH_BAR  = RGB(230, 80, 80);
+static const COLORREF SOURCE_MATCH_TEXT = RGB(255, 226, 226);
 // Keyboard focus (item 2): which of the modal's own buttons is
 // currently focused. Reset to the primary button whenever a modal
 // opens; Tab toggles it (see the main message loop); Enter activates
@@ -130,64 +140,218 @@ static void dismissAppModal(bool primaryPressed) {
 static const std::streamsize SOURCE_VIEW_MAX_BYTES = 4 * 1024 * 1024;
 static const size_t          SOURCE_VIEW_MAX_LINES = 5000;
 
-// Opens the MODAL_SOURCE_VIEW modal for `path`, read-only — never
-// touches the analysis pipeline, purely a GUI-side file read for
-// display. If `path` can't be opened (the submission was moved,
-// deleted, or came from a Classroom folder that's since been
-// re-synced to different paths), the modal still opens, with
-// sourceMissing set and a fallback message shown instead of a crash
-// or a blank panel.
-void openSourceViewModal(const std::wstring& label, const std::wstring& subtitle,
-                          const std::string& path)
+// Reads `path` for MODAL_SOURCE_VIEW, read-only — never touches the
+// analysis pipeline, purely a GUI-side file read for display. If `path`
+// can't be opened (the submission was moved, deleted, or came from a
+// Classroom folder that's since been re-synced to different paths),
+// `side.missing` is set with a fallback message instead of a crash or
+// a blank panel. `rawOut` (optional) receives the same capped bytes the
+// lines were split from, for compare mode's line matching.
+static void loadSourceViewSide(const std::wstring& label, const std::wstring& subtitle,
+                                const std::string& path, SourceViewSide& side,
+                                std::string* rawOut)
 {
-    AppModal m;
-    m.kind  = MODAL_SOURCE_VIEW;
-    m.title = label;
+    side = SourceViewSide{};
+    side.title = label;
 
     std::ifstream f(path, std::ios::binary);
     if (!f) {
-        m.sourceMissing = true;
-        m.sourceSubtitle =
+        side.missing = true;
+        side.subtitle =
             L"This file is no longer at the recorded location — it may "
             L"have been moved, deleted, or the Classroom folder re-synced.";
-    } else {
-        // Read at most the cap, and only past it, so a pathological file
-        // never gets fully loaded into memory just to be truncated.
-        std::vector<char> buf((size_t)SOURCE_VIEW_MAX_BYTES);
-        f.read(buf.data(), SOURCE_VIEW_MAX_BYTES);
-        std::streamsize got = f.gcount();
-        bool truncated = false;
-        if (got == SOURCE_VIEW_MAX_BYTES) {
-            char probe;
-            if (f.read(&probe, 1)) truncated = true;
-        }
-
-        std::string lineBuf;
-        auto flushLine = [&]() {
-            if (m.sourceLines.size() >= SOURCE_VIEW_MAX_LINES) { truncated = true; return; }
-            // Strip a trailing \r (CRLF files) so lines don't show a
-            // stray box glyph at the end.
-            if (!lineBuf.empty() && lineBuf.back() == '\r') lineBuf.pop_back();
-            m.sourceLines.push_back(s2w(lineBuf));
-            lineBuf.clear();
-        };
-        for (std::streamsize i = 0; i < got; ++i) {
-            if (m.sourceLines.size() >= SOURCE_VIEW_MAX_LINES) { truncated = true; break; }
-            char c = buf[(size_t)i];
-            if (c == '\n') flushLine();
-            else lineBuf.push_back(c);
-        }
-        if (!lineBuf.empty() && m.sourceLines.size() < SOURCE_VIEW_MAX_LINES) flushLine();
-
-        m.sourceTruncated = truncated;
-        m.sourceSubtitle  = subtitle;
+        return;
     }
+    // Read at most the cap, and only past it, so a pathological file
+    // never gets fully loaded into memory just to be truncated.
+    std::vector<char> buf((size_t)SOURCE_VIEW_MAX_BYTES);
+    f.read(buf.data(), SOURCE_VIEW_MAX_BYTES);
+    std::streamsize got = f.gcount();
+    bool truncated = false;
+    if (got == SOURCE_VIEW_MAX_BYTES) {
+        char probe;
+        if (f.read(&probe, 1)) truncated = true;
+    }
+
+    std::string lineBuf;
+    auto flushLine = [&]() {
+        if (side.lines.size() >= SOURCE_VIEW_MAX_LINES) { truncated = true; return; }
+        // Strip a trailing \r (CRLF files) so lines don't show a
+        // stray box glyph at the end.
+        if (!lineBuf.empty() && lineBuf.back() == '\r') lineBuf.pop_back();
+        side.lines.push_back(s2w(lineBuf));
+        lineBuf.clear();
+    };
+    for (std::streamsize i = 0; i < got; ++i) {
+        if (side.lines.size() >= SOURCE_VIEW_MAX_LINES) { truncated = true; break; }
+        char c = buf[(size_t)i];
+        if (c == '\n') flushLine();
+        else lineBuf.push_back(c);
+    }
+    if (!lineBuf.empty() && side.lines.size() < SOURCE_VIEW_MAX_LINES) flushLine();
+
+    side.truncated = truncated;
+    side.subtitle  = subtitle;
+    if (rawOut) rawOut->assign(buf.data(), (size_t)got);
+}
+
+// Opens the MODAL_SOURCE_VIEW modal for a single file (no comparison,
+// no highlighting). See loadSourceViewSide for the missing-file case.
+void openSourceViewModal(const std::wstring& label, const std::wstring& subtitle,
+                          const std::string& path)
+{
+    SourceViewSide side;
+    loadSourceViewSide(label, subtitle, path, side, nullptr);
+
+    AppModal m;
+    m.kind            = MODAL_SOURCE_VIEW;
+    m.title           = side.title;
+    m.sourceLines     = std::move(side.lines);
+    m.sourceSubtitle  = side.subtitle;
+    m.sourceMissing   = side.missing;
+    m.sourceTruncated = side.truncated;
 
     g_appModal = m;
     g_modalFocusOnPrimary = true;
     if (g_hContent) InvalidateRect(g_hContent, nullptr, FALSE);
 }
 
+// ── "View source" compare mode: display-only line matching ────────
+// Lines with fewer normalized tokens than this are left out of the
+// match entirely (neither highlighted nor used as an LCS anchor) —
+// `}`, `i++;`, `return 0;` appear in nearly every submission and
+// would drown out the actual evidence.
+static const size_t SOURCE_MATCH_MIN_TOKENS = 4;
+// Bounds the LCS table ((n+1)*(m+1) uint16 cells, ~8MB at the cap).
+// Past it highlighting is skipped with a note rather than stalling.
+static const size_t SOURCE_MATCH_MAX_SIG_LINES = 2000;
+
+// Finds which lines of A and B correspond: each line is normalized by
+// tokenizer.cpp's own cleaning + normalizeTokens (per line, so renamed
+// variables still match — see normalizeSourceLines), then a line-level
+// LCS over the significant lines pairs them up in order. Fills
+// partner/highlight/runStarts on both sides; returns the matched-line
+// count, or -1 with `note` set if matching couldn't run.
+static int computeSourceLineMatches(const std::string& rawA, SourceViewSide& a,
+                                     const std::string& rawB, SourceViewSide& b,
+                                     std::wstring& note)
+{
+    SourceViewSide* sides[2] = {&a, &b};
+    for (SourceViewSide* s : sides) {
+        s->partner.assign(s->lines.size(), -1);
+        s->highlight.assign(s->lines.size(), 0);
+        s->runStarts.clear();
+    }
+
+    std::vector<std::vector<std::string>> normA, normB;
+    if (!normalizeSourceLines(rawA, normA) || !normalizeSourceLines(rawB, normB)) {
+        note = L"match highlighting unavailable — a file couldn't be split into lines cleanly";
+        return -1;
+    }
+
+    // Significant lines -> interned ids, so the DP compares ints.
+    std::unordered_map<std::string, int> intern;
+    auto collect = [&](const std::vector<std::vector<std::string>>& norm, size_t shown,
+                       std::vector<int>& idx, std::vector<int>& key) {
+        for (size_t i = 0; i < norm.size() && i < shown; ++i) {
+            if (norm[i].size() < SOURCE_MATCH_MIN_TOKENS) continue;
+            std::string k;
+            for (const auto& t : norm[i]) { k += t; k += ' '; }
+            auto it = intern.emplace(k, (int)intern.size()).first;
+            idx.push_back((int)i);
+            key.push_back(it->second);
+        }
+    };
+    std::vector<int> idxA, keyA, idxB, keyB;
+    collect(normA, a.lines.size(), idxA, keyA);
+    collect(normB, b.lines.size(), idxB, keyB);
+
+    if (idxA.size() > SOURCE_MATCH_MAX_SIG_LINES || idxB.size() > SOURCE_MATCH_MAX_SIG_LINES) {
+        note = L"match highlighting skipped — file too long to compare";
+        return -1;
+    }
+
+    size_t n = idxA.size(), m = idxB.size();
+    std::vector<uint16_t> dp((n + 1) * (m + 1), 0);
+    auto at = [&](size_t i, size_t j) -> uint16_t& { return dp[i * (m + 1) + j]; };
+    for (size_t i = n; i-- > 0;)
+        for (size_t j = m; j-- > 0;)
+            at(i, j) = (keyA[i] == keyB[j]) ? (uint16_t)(at(i + 1, j + 1) + 1)
+                                            : std::max(at(i + 1, j), at(i, j + 1));
+
+    int matched = 0;
+    for (size_t i = 0, j = 0; i < n && j < m;) {
+        if (keyA[i] == keyB[j]) {
+            a.partner[idxA[i]] = idxB[j];
+            b.partner[idxB[j]] = idxA[i];
+            ++matched; ++i; ++j;
+        } else if (at(i + 1, j) >= at(i, j + 1)) ++i;
+        else ++j;
+    }
+
+    // Runs: consecutive matched significant lines (insignificant lines
+    // between them don't break a run, and are filled in so a copied
+    // block reads as one solid highlight rather than a striped one).
+    auto buildRuns = [](SourceViewSide& s, const std::vector<int>& sig) {
+        int prevMatched = -1;
+        for (int li : sig) {
+            if (s.partner[li] >= 0) {
+                if (prevMatched < 0) s.runStarts.push_back(li);
+                else for (int k = prevMatched + 1; k < li; ++k) s.highlight[k] = 1;
+                s.highlight[li] = 1;
+                prevMatched = li;
+            } else {
+                prevMatched = -1;
+            }
+        }
+    };
+    buildRuns(a, idxA);
+    buildRuns(b, idxB);
+    return matched;
+}
+
+// Opens MODAL_SOURCE_VIEW in compare mode for a flagged pair. Either
+// file missing degrades to the same fallback message as single-file
+// mode on that side, with highlighting off for both (nothing to match).
+void openSourceCompareModal(const std::string& pathA, const std::wstring& labelA,
+                             const std::string& pathB, const std::wstring& labelB,
+                             bool showA)
+{
+    SourceViewSide sa, sb;
+    std::string rawA, rawB;
+    loadSourceViewSide(labelA, s2w(pathA), pathA, sa, &rawA);
+    loadSourceViewSide(labelB, s2w(pathB), pathB, sb, &rawB);
+
+    AppModal m;
+    m.kind          = MODAL_SOURCE_VIEW;
+    m.sourceCompare = true;
+
+    if (sa.missing || sb.missing) {
+        sa.partner.assign(sa.lines.size(), -1); sa.highlight.assign(sa.lines.size(), 0);
+        sb.partner.assign(sb.lines.size(), -1); sb.highlight.assign(sb.lines.size(), 0);
+        m.sourceCompareNote = std::wstring(L"match highlighting unavailable — File ") +
+                              (sa.missing ? L"A" : L"B") + L" couldn't be read";
+    } else {
+        m.sourceMatchCount = computeSourceLineMatches(rawA, sa, rawB, sb, m.sourceCompareNote);
+        if (m.sourceMatchCount < 0) m.sourceMatchCount = 0;
+    }
+
+    SourceViewSide& shown = showA ? sa : sb;
+    m.sourceSide      = showA ? 0 : 1;
+    m.title           = shown.title;
+    m.sourceLines     = std::move(shown.lines);
+    m.sourceSubtitle  = shown.subtitle;
+    m.sourceMissing   = shown.missing;
+    m.sourceTruncated = shown.truncated;
+    m.sourcePartner   = std::move(shown.partner);
+    m.sourceHighlight = std::move(shown.highlight);
+    m.sourceRunStarts = std::move(shown.runStarts);
+    m.sourceOther     = std::move(showA ? sb : sa);
+
+    g_appModal = std::move(m);
+    g_modalFocusOnPrimary = true;
+    if (g_hContent) InvalidateRect(g_hContent, nullptr, FALSE);
+}
 
 // ── Unified keyboard focus system (compliance sweep item 2) ──────
 // Treats real sidebar HWND controls and virtual canvas hit-rects as
@@ -1640,7 +1804,7 @@ static void drawToasts(HDC hdcScreen, const RECT& viewport) {
 // close), so the three stay in sync without duplicating magic numbers.
 // Fixed size, not text-measured — the whole reason this is a distinct
 // kind from MODAL_OK/MODAL_CONFIRM (see the ModalKind enum's comment).
-struct SourceViewGeom { RECT modal, header, body, closeBtn; int lineH; };
+struct SourceViewGeom { RECT modal, header, toolbar, body, closeBtn; int lineH; };
 static SourceViewGeom sourceViewGeometry(const RECT& viewport) {
     SourceViewGeom g;
     int modalW = S(860);
@@ -1655,9 +1819,14 @@ static SourceViewGeom sourceViewGeometry(const RECT& viewport) {
     if (my < S(10)) my = S(10);
     g.modal = {mx, my, mx + modalW, my + modalH};
 
-    int headerH = S(60);
+    // Compare mode adds a toolbar row (File A/B tabs, prev/next match)
+    // under the title/subtitle; single-file mode's layout is unchanged.
+    int toolbarH = g_appModal.sourceCompare ? S(36) : 0;
+    int headerH = S(60) + toolbarH;
     int footerH = S(24);
     g.header = {g.modal.left, g.modal.top, g.modal.right, g.modal.top + headerH};
+    g.toolbar = {g.modal.left + S(20), g.modal.top + S(60),
+                 g.modal.right - S(20), g.modal.top + S(60) + toolbarH - S(8)};
     g.body   = {g.modal.left + S(20), g.header.bottom + S(8),
                 g.modal.right - S(20), g.modal.bottom - footerH};
 
@@ -1669,12 +1838,76 @@ static SourceViewGeom sourceViewGeometry(const RECT& viewport) {
     return g;
 }
 
+// Compare mode: switch the shown file to `side` (0 = A, 1 = B) by
+// swapping AppModal's active source* fields with sourceOther. If a
+// matched line is on screen, the newly shown file is scrolled so that
+// line's partner lands at the same height — so flipping A/B keeps the
+// evidence lined up instead of jumping to wherever that file was left.
+static void swapSourceViewSide(HWND hwnd, int side) {
+    AppModal& m = g_appModal;
+    if (m.kind != MODAL_SOURCE_VIEW || !m.sourceCompare || side == m.sourceSide) return;
+
+    RECT vp; GetClientRect(hwnd, &vp);
+    SourceViewGeom geom = sourceViewGeometry(vp);
+    int viewportH = geom.body.bottom - geom.body.top;
+    int alignedScroll = -1;
+    for (int i = m.sourceScrollY / geom.lineH;
+         i < (int)m.sourcePartner.size() && i * geom.lineH < m.sourceScrollY + viewportH; ++i) {
+        if (m.sourcePartner[i] >= 0) {
+            alignedScroll = m.sourcePartner[i] * geom.lineH - (i * geom.lineH - m.sourceScrollY);
+            if (alignedScroll < 0) alignedScroll = 0;
+            break;
+        }
+    }
+
+    SourceViewSide& o = m.sourceOther;
+    std::swap(m.title,           o.title);
+    std::swap(m.sourceLines,     o.lines);
+    std::swap(m.sourceSubtitle,  o.subtitle);
+    std::swap(m.sourceMissing,   o.missing);
+    std::swap(m.sourceTruncated, o.truncated);
+    std::swap(m.sourceScrollY,   o.scrollY);
+    std::swap(m.sourcePartner,   o.partner);
+    std::swap(m.sourceHighlight, o.highlight);
+    std::swap(m.sourceRunStarts, o.runStarts);
+    m.sourceSide = side;
+    if (alignedScroll >= 0) m.sourceScrollY = alignedScroll; // drawSourceViewModal clamps
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+// Compare mode: scroll to the next (dir > 0) or previous matched run,
+// leaving a few lines of context above it.
+static void jumpSourceViewMatch(HWND hwnd, int dir) {
+    AppModal& m = g_appModal;
+    if (m.kind != MODAL_SOURCE_VIEW || m.sourceRunStarts.empty()) return;
+
+    RECT vp; GetClientRect(hwnd, &vp);
+    SourceViewGeom geom = sourceViewGeometry(vp);
+    const int context = 3;
+    int topLine = m.sourceScrollY / geom.lineH;
+    int target = -1;
+    if (dir > 0) {
+        for (int li : m.sourceRunStarts)
+            if (li - context > topLine) { target = li; break; }
+    } else {
+        for (auto it = m.sourceRunStarts.rbegin(); it != m.sourceRunStarts.rend(); ++it)
+            if (*it - context < topLine) { target = *it; break; }
+    }
+    if (target < 0) return;
+    int pos = (target - context) * geom.lineH;
+    if (pos < 0) pos = 0;
+    m.sourceScrollY = pos; // drawSourceViewModal clamps to maxScroll
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
 // MODAL_SOURCE_VIEW's own draw path — fixed-size card, clipped and
 // independently scrolled body (g_appModal.sourceScrollY, not the
 // page's g_scrollY), monospace text, no syntax highlighting (see
 // CLAUDE.md's note on why: tokenizer.cpp's Token has no source
 // offset, so highlighting here would need a second, separate lexer).
 static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
+    static HBRUSH s_matchBgBrush  = CreateSolidBrush(SOURCE_MATCH_BG);
+    static HBRUSH s_matchBarBrush = CreateSolidBrush(SOURCE_MATCH_BAR);
     SourceViewGeom geom = sourceViewGeometry(viewport);
     drawCard(hdcScreen, geom.modal, GRAY_900, GRAY_700, 14, UL_GOLD);
 
@@ -1709,6 +1942,57 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
               DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     g_sourceViewCloseBtnRect = geom.closeBtn;
 
+    // Compare-mode toolbar: File A / File B tabs on the left, match
+    // count + prev/next match buttons on the right. Hit rects are
+    // recorded here, same as the close button above.
+    g_sourceViewTabRects[0] = g_sourceViewTabRects[1] = RECT{};
+    g_sourceViewPrevRect = g_sourceViewNextRect = RECT{};
+    if (g_appModal.sourceCompare) {
+        SelectObject(hdcScreen, g_hFontSmall);
+        int tx = geom.toolbar.left;
+        for (int side = 0; side < 2; ++side) {
+            bool active = (side == g_appModal.sourceSide);
+            const std::wstring& name = active ? g_appModal.title : g_appModal.sourceOther.title;
+            std::wstring label = std::wstring(side == 0 ? L"File A  ·  " : L"File B  ·  ") + name;
+            RECT mr = {0, 0, 0, 0};
+            DrawTextW(hdcScreen, label.c_str(), -1, &mr, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+            int w = mr.right - mr.left + S(24);
+            if (w > S(260)) w = S(260);
+            RECT tr = {tx, geom.toolbar.top, tx + w, geom.toolbar.bottom};
+            drawCard(hdcScreen, tr, active ? MAROON_800 : GRAY_800,
+                     active ? UL_GOLD : GRAY_700, 6);
+            SetTextColor(hdcScreen, active ? UL_GOLD : GRAY_400);
+            RECT textR = {tr.left + S(12), tr.top, tr.right - S(12), tr.bottom};
+            DrawTextW(hdcScreen, label.c_str(), -1, &textR,
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            g_sourceViewTabRects[side] = tr;
+            tx = tr.right + S(8);
+        }
+
+        bool canJump = !g_appModal.sourceRunStarts.empty();
+        int bw = S(88);
+        RECT nextR = {geom.toolbar.right - bw, geom.toolbar.top,
+                      geom.toolbar.right, geom.toolbar.bottom};
+        RECT prevR = {nextR.left - S(8) - bw, geom.toolbar.top,
+                      nextR.left - S(8), geom.toolbar.bottom};
+        const wchar_t* labels[2] = {L"▲  Prev", L"▼  Next"};
+        RECT* rs[2] = {&prevR, &nextR};
+        for (int k = 0; k < 2; ++k) {
+            drawCard(hdcScreen, *rs[k], GRAY_800, canJump ? SOURCE_MATCH_BAR : GRAY_700, 6);
+            SetTextColor(hdcScreen, canJump ? GRAY_200 : GRAY_500);
+            DrawTextW(hdcScreen, labels[k], -1, rs[k], DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
+        if (canJump) { g_sourceViewPrevRect = prevR; g_sourceViewNextRect = nextR; }
+
+        std::wstring countText = g_appModal.sourceCompareNote.empty()
+            ? std::to_wstring(g_appModal.sourceMatchCount) + L" matching lines"
+            : std::wstring(L"no highlighting");
+        RECT cr = {tx + S(8), geom.toolbar.top, prevR.left - S(12), geom.toolbar.bottom};
+        SetTextColor(hdcScreen, g_appModal.sourceMatchCount > 0 ? SOURCE_MATCH_BAR : GRAY_500);
+        DrawTextW(hdcScreen, countText.c_str(), -1, &cr,
+                  DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    }
+
     // Body — clipped to its rect so long lines/overflow can't bleed
     // into the header or past the card, then either the missing-file
     // fallback message or the scrolled, monospace source text.
@@ -1740,8 +2024,19 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
              ++i, lineY += geom.lineH)
         {
             RECT lr = {geom.body.left, lineY, geom.body.right, lineY + geom.lineH};
+            bool hl = i < g_appModal.sourceHighlight.size() && g_appModal.sourceHighlight[i];
+            if (hl) {
+                // Compare mode: red highlight on lines matching the
+                // other file (see computeSourceLineMatches).
+                RECT bg = {lr.left - S(8), lr.top, lr.right - S(10), lr.bottom};
+                FillRect(hdcScreen, &bg, s_matchBgBrush);
+                RECT bar = {bg.left, bg.top, bg.left + S(3), bg.bottom};
+                FillRect(hdcScreen, &bar, s_matchBarBrush);
+                SetTextColor(hdcScreen, SOURCE_MATCH_TEXT);
+            }
             DrawTextW(hdcScreen, g_appModal.sourceLines[i].c_str(), -1, &lr,
                       DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+            if (hl) SetTextColor(hdcScreen, GRAY_200);
         }
 
         // Simple scrollbar thumb on the body's right edge — visual
@@ -1749,6 +2044,15 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
         // this HDC isn't an HWND) the native scrollbar on the main pane.
         if (maxScroll > 0) {
             int trackX = geom.body.right - S(6);
+            // Compare mode: a red tick in the track per matched run, so
+            // where the evidence sits in a long file is visible at a glance.
+            if (!g_appModal.sourceRunStarts.empty() && contentH > 0) {
+                for (int li : g_appModal.sourceRunStarts) {
+                    int ty = geom.body.top + (int)((double)li * geom.lineH * viewportH / contentH);
+                    RECT tick = {trackX - S(2), ty, trackX + S(6), ty + S(2)};
+                    FillRect(hdcScreen, &tick, s_matchBarBrush);
+                }
+            }
             int thumbH = (contentH > 0)
                 ? (int)((double)viewportH * viewportH / contentH) : viewportH;
             if (thumbH < S(24)) thumbH = S(24);
@@ -1774,6 +2078,12 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
         if (g_appModal.sourceTruncated)
             footer += L"  ·  truncated — file exceeds the display limit, "
                       L"showing a prefix only";
+        if (g_appModal.sourceCompare) {
+            footer += g_appModal.sourceCompareNote.empty()
+                ? L"  ·  red = matches the other file (renamed identifiers count)"
+                  L"  ·  Tab / A / B: switch file  ·  N / P: next / prev match"
+                : L"  ·  " + g_appModal.sourceCompareNote;
+        }
         RECT footR = {geom.modal.left + S(20), geom.body.bottom + S(2),
                        geom.modal.right - S(20), geom.modal.bottom - S(2)};
         DrawTextW(hdcScreen, footer.c_str(), -1, &footR,
@@ -2363,9 +2673,8 @@ void openSourceViewForFlaggedPair(HWND /*hwnd*/, int pairIdx, bool isA) {
     if (pairIdx < 0 || pairIdx >= (int)g_analysisResults.flaggedPairs.size())
         return;
     const auto& pr = g_analysisResults.flaggedPairs[pairIdx];
-    const std::string& path     = isA ? pr.pathA : pr.pathB;
-    const std::string& filename = isA ? pr.filenameA : pr.filenameB;
-    openSourceViewModal(s2w(filename), s2w(path), path);
+    openSourceCompareModal(pr.pathA, s2w(pr.filenameA),
+                           pr.pathB, s2w(pr.filenameB), isA);
 }
 
 void selectSeverityFilter(HWND hwnd, PairSeverityFilter f) {
@@ -2669,6 +2978,15 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             // always the primary one. Must come before every other
             // keyboard branch below, including search's own Esc.
             if (g_appModal.kind != MODAL_NONE) {
+                // MODAL_SOURCE_VIEW compare mode: A/B pick the file,
+                // N/P jump to the next/previous matched run (Tab also
+                // toggles files — see the main message loop).
+                if (g_appModal.kind == MODAL_SOURCE_VIEW && g_appModal.sourceCompare) {
+                    if (wParam == 'A') { swapSourceViewSide(hwnd, 0); return 0; }
+                    if (wParam == 'B') { swapSourceViewSide(hwnd, 1); return 0; }
+                    if (wParam == 'N') { jumpSourceViewMatch(hwnd, +1); return 0; }
+                    if (wParam == 'P') { jumpSourceViewMatch(hwnd, -1); return 0; }
+                }
                 // MODAL_SOURCE_VIEW's own scroll keys — Esc still closes
                 // it (checked just below, unchanged), but arrows/Page/
                 // Home/End move sourceScrollY instead of falling through
@@ -3029,7 +3347,15 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                         my >= g_sourceViewCloseBtnRect.top && my < g_sourceViewCloseBtnRect.bottom)
                     {
                         dismissAppModal(false);
+                        return 0;
                     }
+                    auto inR = [&](const RECT& r) {
+                        return mx >= r.left && mx < r.right && my >= r.top && my < r.bottom;
+                    };
+                    if (inR(g_sourceViewTabRects[0]))      swapSourceViewSide(hwnd, 0);
+                    else if (inR(g_sourceViewTabRects[1])) swapSourceViewSide(hwnd, 1);
+                    else if (inR(g_sourceViewPrevRect))    jumpSourceViewMatch(hwnd, -1);
+                    else if (inR(g_sourceViewNextRect))    jumpSourceViewMatch(hwnd, +1);
                     return 0;
                 }
                 if (mx >= g_modalPrimaryBtnRect.left && mx < g_modalPrimaryBtnRect.right &&
@@ -4197,6 +4523,8 @@ int runGUI(HINSTANCE hInstance)
                 bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
                 if (g_appModal.kind == MODAL_CONFIRM) {
                     g_modalFocusOnPrimary = !g_modalFocusOnPrimary;
+                } else if (g_appModal.kind == MODAL_SOURCE_VIEW && g_appModal.sourceCompare) {
+                    swapSourceViewSide(g_hContent, 1 - g_appModal.sourceSide);
                 } else if (g_helpCarouselState == HelpCarouselState::Open) {
                     // Same unconditional-toggle idiom as MODAL_CONFIRM
                     // above — harmless even on the last step where

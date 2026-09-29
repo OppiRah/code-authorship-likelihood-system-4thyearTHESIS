@@ -63,3 +63,16 @@ SimilarityScore computeSimilarity(const TokenResult& a, const TokenResult& b);
 
 // Classify a combined score into a label
 std::pair<std::string,std::string> classifySimilarity(double score);
+
+// Display-only, line-level normalization for the "View source" compare
+// view (GUI match highlighting). NOT used by the scoring pipeline —
+// runs the same comment/string/preprocessor cleaning and the same
+// normalizeTokens() as tokenize(), but per source line with a fresh
+// identifier mapping each line, so `sum = sum + a[i];` and
+// `t = t + v[k];` normalize identically. Output has one entry per line
+// of `source` (split on '\n'); an empty entry means the line has no
+// tokens (blank, comment-only, or preprocessor). Returns false if the
+// cleaning passes didn't preserve the line count (e.g. an unterminated
+// string literal swallowed a newline), in which case `out` is unusable.
+bool normalizeSourceLines(const std::string& source,
+                          std::vector<std::vector<std::string>>& out);
