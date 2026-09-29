@@ -1838,6 +1838,29 @@ static SourceViewGeom sourceViewGeometry(const RECT& viewport) {
     return g;
 }
 
+// MODAL_SOURCE_VIEW smooth scroll: eases sourceScrollY toward `target`
+// (already clamped by the caller) over SOURCE_SCROLL_ANIM_MS with the
+// shared easeOutCubic, driven by TIMER_SOURCE_SCROLL. Retargeting while
+// in flight restarts from the current position, so repeated wheel
+// notches/keypresses glide instead of stuttering. Callers that stack
+// input (wheel, arrows, Page) should step from sourceScrollBase().
+static void animateSourceScrollTo(HWND hwnd, int target) {
+    AppModal& m = g_appModal;
+    if (target == (m.sourceScrollAnimating ? m.sourceScrollTarget : m.sourceScrollY)) return;
+    m.sourceScrollFrom      = m.sourceScrollY;
+    m.sourceScrollTarget    = target;
+    m.sourceScrollStartTick = GetTickCount();
+    m.sourceScrollAnimating = true;
+    SetTimer(hwnd, TIMER_SOURCE_SCROLL, 15, nullptr);
+}
+
+// Where the next scroll step should start from: the in-flight target
+// if an animation is running (so steps accumulate), else the position.
+static int sourceScrollBase() {
+    return g_appModal.sourceScrollAnimating ? g_appModal.sourceScrollTarget
+                                            : g_appModal.sourceScrollY;
+}
+
 // Compare mode: switch the shown file to `side` (0 = A, 1 = B) by
 // swapping AppModal's active source* fields with sourceOther. If a
 // matched line is on screen, the newly shown file is scrolled so that
@@ -1846,6 +1869,9 @@ static SourceViewGeom sourceViewGeometry(const RECT& viewport) {
 static void swapSourceViewSide(HWND hwnd, int side) {
     AppModal& m = g_appModal;
     if (m.kind != MODAL_SOURCE_VIEW || !m.sourceCompare || side == m.sourceSide) return;
+    // Land any in-flight glide first, so the parked file keeps the
+    // position it was headed to and alignment uses the settled view.
+    if (m.sourceScrollAnimating) m.sourceScrollY = m.sourceScrollTarget;
 
     RECT vp; GetClientRect(hwnd, &vp);
     SourceViewGeom geom = sourceViewGeometry(vp);
@@ -1871,6 +1897,7 @@ static void swapSourceViewSide(HWND hwnd, int side) {
     std::swap(m.sourceHighlight, o.highlight);
     std::swap(m.sourceRunStarts, o.runStarts);
     m.sourceSide = side;
+    m.sourceScrollAnimating = false; // switching files snaps; the old glide belonged to the other file
     if (alignedScroll >= 0) m.sourceScrollY = alignedScroll; // drawSourceViewModal clamps
     InvalidateRect(hwnd, nullptr, FALSE);
 }
@@ -1884,7 +1911,7 @@ static void jumpSourceViewMatch(HWND hwnd, int dir) {
     RECT vp; GetClientRect(hwnd, &vp);
     SourceViewGeom geom = sourceViewGeometry(vp);
     const int context = 3;
-    int topLine = m.sourceScrollY / geom.lineH;
+    int topLine = sourceScrollBase() / geom.lineH;
     int target = -1;
     if (dir > 0) {
         for (int li : m.sourceRunStarts)
@@ -1894,10 +1921,12 @@ static void jumpSourceViewMatch(HWND hwnd, int dir) {
             if (*it - context < topLine) { target = *it; break; }
     }
     if (target < 0) return;
+    int maxScroll = (int)m.sourceLines.size() * geom.lineH - (geom.body.bottom - geom.body.top);
+    if (maxScroll < 0) maxScroll = 0;
     int pos = (target - context) * geom.lineH;
+    if (pos > maxScroll) pos = maxScroll;
     if (pos < 0) pos = 0;
-    m.sourceScrollY = pos; // drawSourceViewModal clamps to maxScroll
-    InvalidateRect(hwnd, nullptr, FALSE);
+    animateSourceScrollTo(hwnd, pos);
 }
 
 // MODAL_SOURCE_VIEW's own draw path — fixed-size card, clipped and
@@ -3002,8 +3031,8 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                     int maxScroll = contentH - viewportH;
                     if (maxScroll < 0) maxScroll = 0;
 
-                    int pos = g_appModal.sourceScrollY;
-                    if (wParam == VK_DOWN)       pos += geom.lineH * 3;
+                    int pos = sourceScrollBase();
+                    if (wParam == VK_DOWN)      pos += geom.lineH * 3;
                     else if (wParam == VK_UP)    pos -= geom.lineH * 3;
                     else if (wParam == VK_NEXT)  pos += viewportH;
                     else if (wParam == VK_PRIOR) pos -= viewportH;
@@ -3012,10 +3041,7 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                     if (pos < 0) pos = 0;
                     if (pos > maxScroll) pos = maxScroll;
 
-                    if (pos != g_appModal.sourceScrollY) {
-                        g_appModal.sourceScrollY = pos;
-                        InvalidateRect(hwnd, nullptr, FALSE);
-                    }
+                    animateSourceScrollTo(hwnd, pos);
                     return 0;
                 }
                 if (wParam == VK_ESCAPE) {
@@ -3176,14 +3202,11 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                 if (maxScroll < 0) maxScroll = 0;
 
                 int scrollAmount = (delta / WHEEL_DELTA) * 60;
-                int newPos = g_appModal.sourceScrollY - scrollAmount;
+                int newPos = sourceScrollBase() - scrollAmount;
                 if (newPos < 0) newPos = 0;
                 if (newPos > maxScroll) newPos = maxScroll;
 
-                if (newPos != g_appModal.sourceScrollY) {
-                    g_appModal.sourceScrollY = newPos;
-                    InvalidateRect(hwnd, nullptr, FALSE);
-                }
+                animateSourceScrollTo(hwnd, newPos);
                 return 0;
             }
 
@@ -3245,6 +3268,25 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                     else ++it;
                 }
                 if (g_pairAnimating.empty()) KillTimer(hwnd, TIMER_PAIR_EXPAND);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            else if (wParam == TIMER_SOURCE_SCROLL) {
+                // MODAL_SOURCE_VIEW glide — see animateSourceScrollTo.
+                // Also self-stops if the modal was dismissed mid-glide.
+                AppModal& m = g_appModal;
+                if (m.kind != MODAL_SOURCE_VIEW || !m.sourceScrollAnimating) {
+                    KillTimer(hwnd, TIMER_SOURCE_SCROLL);
+                    return 0;
+                }
+                float t = (float)(GetTickCount() - m.sourceScrollStartTick) / (float)SOURCE_SCROLL_ANIM_MS;
+                if (t >= 1.0f) {
+                    m.sourceScrollY = m.sourceScrollTarget;
+                    m.sourceScrollAnimating = false;
+                    KillTimer(hwnd, TIMER_SOURCE_SCROLL);
+                } else {
+                    m.sourceScrollY = m.sourceScrollFrom +
+                        (int)std::lround((m.sourceScrollTarget - m.sourceScrollFrom) * easeOutCubic(t));
+                }
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             else if (wParam == TIMER_COPY_FEEDBACK) {

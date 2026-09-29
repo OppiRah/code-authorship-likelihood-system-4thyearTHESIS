@@ -160,6 +160,8 @@ using namespace Gdiplus;
 #define PAIR_EXPAND_ANIM_MS 240
 #define TIMER_COPY_FEEDBACK 1006
 #define COPY_FEEDBACK_MS 1200
+#define TIMER_SOURCE_SCROLL 1009   // MODAL_SOURCE_VIEW smooth scroll (gui.cpp)
+#define SOURCE_SCROLL_ANIM_MS 200
 #define toNarrow(w) toNarrowGC(w)
 
 // ── Default dimensions ────────────────────────────────────────
@@ -345,6 +347,13 @@ struct AppModal {
     bool sourceMissing   = false; // file couldn't be opened at render time
     bool sourceTruncated = false; // file exceeded the read cap; sourceLines is a prefix
     int  sourceScrollY   = 0;     // independent of the page's g_scrollY — see note above
+    // Smooth scroll (animateSourceScrollTo, gui.cpp): sourceScrollY eases
+    // from sourceScrollFrom to sourceScrollTarget over SOURCE_SCROLL_ANIM_MS.
+    // Living on AppModal means dismissing the modal cancels it for free.
+    bool  sourceScrollAnimating = false;
+    int   sourceScrollFrom      = 0;
+    int   sourceScrollTarget    = 0;
+    DWORD sourceScrollStartTick = 0;
 
     // MODAL_SOURCE_VIEW compare mode only (openSourceCompareModal) —
     // display-only line matching between a flagged pair's two files,
