@@ -533,18 +533,40 @@ std::string wideToUtf8(const std::wstring& w) {
 // ═════════════════════════════════════════════════════════════
 // COUNT .C FILES IN A FOLDER
 // ═════════════════════════════════════════════════════════════
+// Mirrors main.cpp's loadFolder(): .c files directly in the folder
+// plus one level of subfolders (block folders like "BSCS 2A"). The
+// old root-only count reported "0 files" for a block-subfolder
+// dataset — and made Select Folder reject it outright — even though
+// the analysis loads those files fine. Counts distinct bare filenames,
+// same as loadFolder's map, so the number matches what gets analyzed.
 int countCFiles(const std::wstring& folder) {
-    int count = 0;
-    std::wstring pattern = folder + L"\\*.c";
+    std::set<std::wstring> stems;
+    auto scan = [&](const std::wstring& dir) {
+        WIN32_FIND_DATAW fd;
+        HANDLE hFind = FindFirstFileW((dir + L"\\*.c").c_str(), &fd);
+        if (hFind == INVALID_HANDLE_VALUE) return;
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                std::wstring fname = fd.cFileName;
+                stems.insert(fname.substr(0, fname.rfind(L'.')));
+            }
+        } while (FindNextFileW(hFind, &fd));
+        FindClose(hFind);
+    };
+
+    scan(folder);
     WIN32_FIND_DATAW fd;
-    HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
-    if (hFind == INVALID_HANDLE_VALUE) return 0;
-    do {
-        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-            ++count;
-    } while (FindNextFileW(hFind, &fd));
-    FindClose(hFind);
-    return count;
+    HANDLE hFind = FindFirstFileW((folder + L"\\*").c_str(), &fd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+            std::wstring sub = fd.cFileName;
+            if (sub == L"." || sub == L"..") continue;
+            scan(folder + L"\\" + sub);
+        } while (FindNextFileW(hFind, &fd));
+        FindClose(hFind);
+    }
+    return (int)stems.size();
 }
 
 // ═════════════════════════════════════════════════════════════
