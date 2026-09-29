@@ -504,6 +504,7 @@ extern std::string runAnalysisPipeline(const std::string& dataFolder,
 extern std::string generateStudentSimilarityReport(const std::string& studentName);
 extern AnalysisResults g_analysisResults;
 extern void setAnalysisProgressCallback(AnalysisProgressCallback cb);
+extern std::string studentNameForFile(const std::string& filename);
 
 // ─────────────────────────────────────────────────────────────
 // SHARED GLOBALS — declared here, DEFINED ONCE each, split across
@@ -656,6 +657,9 @@ void selectBlockTab(HWND hwnd, int tabIdx);
 void clearExactDuplicatesFilter(HWND hwnd);
 void copyFindingsForPair(HWND hwnd, int pairIdx);
 void openSourceViewForFlaggedPair(HWND hwnd, int pairIdx, bool isA);
+// Drops gui_students.cpp's per-run Classes cache (flag summaries,
+// blocks, manifest). Called from WM_ANALYSIS_COMPLETE.
+void invalidateStudentsTabCache();
 int drawFlaggedPairs(HDC hdc, int x, int y, int width);
 // Checkpoint 2 of the ContentProc split:
 bool handleFlaggedPairsClick(HWND hwnd, int mx, int scrolledY);

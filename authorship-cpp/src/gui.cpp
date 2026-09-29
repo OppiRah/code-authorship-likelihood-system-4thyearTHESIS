@@ -4407,6 +4407,7 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg,
             return 0;
 
         case WM_ANALYSIS_COMPLETE:
+            invalidateStudentsTabCache(); // new results — Classes cache is per run
             g_state.analysisRunning  = false;
             g_state.analysisComplete = true;
             g_animRunning = false;

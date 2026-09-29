@@ -107,6 +107,16 @@ static std::string extractStudentName(const std::string& filename) {
     return (start != std::string::npos) ? name.substr(start) : filename;
 }
 
+// Non-static export of extractStudentName for the GUI (gui_students.cpp's
+// per-run Classes cache), so it groups files under exactly the same
+// student identity the pipeline used to build profiles and pairs —
+// gui.cpp's extractStudentNameGC is only a partial mirror (no legacy
+// "act1"/"finalsexam" prefix or "_N" suffix stripping). Display-only
+// use; does not participate in scoring.
+std::string studentNameForFile(const std::string& filename) {
+    return extractStudentName(filename);
+}
+
 // ─────────────────────────────────────────────────────────────
 // File categorization — priority hierarchy
 //

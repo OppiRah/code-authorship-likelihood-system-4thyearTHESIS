@@ -61,23 +61,95 @@ static DnaStripStyle dnaStyleDetail() {
 // eight flagged pairs.
 struct StudentFlagSummary { int count; double maxScore; };
 
-static StudentFlagSummary studentFlagSummary(const std::string& studentName) {
-    StudentFlagSummary out { 0, 0.0 };
-    std::string lower = studentName;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+// ── Per-run Classes cache (scale perf fix A+B) ───────────────────
+// Everything the Classes grid needs per student that depends only on
+// the analysis results + sync manifest, computed ONCE per run instead
+// of on every paint. At 160 students / 6,481 flagged pairs the old
+// per-paint versions (a flagged-pairs scan per card plus again for
+// the sort counts, an allPairs scan per student ×3, and two manifest
+// disk reads) cost ~800ms per frame — see the 2026-09-29 scale
+// profiling. Parallel to g_analysisResults.profiles by index.
+//
+// Students are matched EXACTLY by the pipeline's own student identity
+// (AuthorshipDisplay::studentName for flagged pairs, studentNameForFile
+// for allPairs filenames — both extractStudentName in main.cpp), not
+// by case-insensitive substring as before, which counted "LuisDizon"'s
+// pairs toward a student named "Luis" too.
+//
+// Invalidated explicitly at WM_ANALYSIS_COMPLETE; also rebuilds if the
+// data folder or result sizes no longer match (e.g. a Classroom sync
+// switched g_state.dataFolder before its re-run finished) — same
+// "reflects the current folder" behavior the per-paint reads had.
+struct StudentsTabCache {
+    bool valid = false;
+    std::wstring folder;
+    size_t profilesN = 0, flaggedN = 0, allPairsN = 0;
+    std::map<std::string,SyncManifestEntry> manifest;
+    std::vector<StudentFlagSummary> flags;
+    std::vector<std::string> blocks;
+};
+static StudentsTabCache g_studentsCache;
 
-    for (const auto& fp : g_analysisResults.flaggedPairs) {
-        auto containsCI = [&](const std::string& h) {
-            std::string hh = h;
-            std::transform(hh.begin(), hh.end(), hh.begin(), ::tolower);
-            return hh.find(lower) != std::string::npos;
-        };
-        if (containsCI(fp.filenameA) || containsCI(fp.filenameB)) {
-            ++out.count;
-            if (fp.combinedScore > out.maxScore) out.maxScore = fp.combinedScore;
+void invalidateStudentsTabCache() { g_studentsCache.valid = false; }
+
+static const StudentsTabCache& studentsTabCache() {
+    StudentsTabCache& c = g_studentsCache;
+    const AnalysisResults& r = g_analysisResults;
+    if (c.valid && c.folder == g_state.dataFolder && c.profilesN == r.profiles.size() &&
+        c.flaggedN == r.flaggedPairs.size() && c.allPairsN == r.allPairs.size())
+        return c;
+
+    c.valid     = true;
+    c.folder    = g_state.dataFolder;
+    c.profilesN = r.profiles.size();
+    c.flaggedN  = r.flaggedPairs.size();
+    c.allPairsN = r.allPairs.size();
+    c.manifest  = gc_loadSyncManifest(toNarrowGC(g_state.dataFolder));
+    c.flags.assign(r.profiles.size(), StudentFlagSummary{0, 0.0});
+    c.blocks.assign(r.profiles.size(), "General");
+
+    std::unordered_map<std::string, int> profileIdx;
+    for (size_t i = 0; i < r.profiles.size(); ++i) profileIdx[r.profiles[i].name] = (int)i;
+
+    // Flagged-appearance count + highest score per student. The old
+    // card footer's signal — a student previously had to be opened to
+    // discover they appeared in eight flagged pairs.
+    for (const auto& fp : r.flaggedPairs) {
+        for (const std::string* who : {&fp.studentA.studentName, &fp.studentB.studentName}) {
+            if (who == &fp.studentB.studentName && *who == fp.studentA.studentName) break;
+            auto it = profileIdx.find(*who);
+            if (it == profileIdx.end()) continue;
+            StudentFlagSummary& s = c.flags[it->second];
+            ++s.count;
+            if (fp.combinedScore > s.maxScore) s.maxScore = fp.combinedScore;
         }
     }
-    return out;
+
+    // Block/section per student: the block of the first of their
+    // compared files (allPairs order, A before B) that has a non-empty
+    // manifest block — the same first-hit order the old per-paint
+    // determineStudentBlock scan used. Students with no manifest entry
+    // (e.g. manually imported files never went through Classroom sync)
+    // stay "General".
+    std::vector<char> assigned(r.profiles.size(), 0);
+    std::unordered_map<std::string, int> fileOwner; // filename -> profile idx, -1 = none
+    for (const auto& row : r.allPairs) {
+        for (const std::string* fname : {&row.filenameA, &row.filenameB}) {
+            auto fo = fileOwner.find(*fname);
+            if (fo == fileOwner.end()) {
+                auto pi = profileIdx.find(studentNameForFile(*fname));
+                fo = fileOwner.emplace(*fname, pi == profileIdx.end() ? -1 : pi->second).first;
+            }
+            int idx = fo->second;
+            if (idx < 0 || assigned[idx]) continue;
+            auto hit = c.manifest.find(*fname + ".c");
+            if (hit != c.manifest.end() && !hit->second.block.empty()) {
+                c.blocks[idx] = hit->second.block;
+                assigned[idx] = 1;
+            }
+        }
+    }
+    return c;
 }
 
 // Condenses the verbose "[Naming] Uses medium-length variable names"
@@ -106,25 +178,31 @@ static std::vector<std::wstring> condenseStyleNotes(
     return lines;
 }
 
+// Card height for a given number of condensed note lines — split out
+// of drawStudentProfileCard so drawStudentProfiles can lay out (and
+// register hit-rects for) off-screen cards without drawing them.
+static int studentProfileCardHeight(size_t noteLineCount) {
+    // Fixed-height card. The old card sized itself to its bullet count
+    // and reserved ~60px of dead space below the last bullet; the grid
+    // read as unfinished. Every region below now has a job.
+    return S(20) + S(26) + S(10) + S(18) + S(12)
+         + (int)noteLineCount * S(19) + S(10)
+         + S(28) + S(6);
+}
+
 static int drawStudentProfileCard(HDC hdc, int x, int y, int w,
-                                    const StudentProfileSummary& profile)
+                                    const StudentProfileSummary& profile,
+                                    const StudentFlagSummary& flags)
 {
     SetBkMode(hdc, TRANSPARENT);
 
     auto noteLines = condenseStyleNotes(profile.styleNotes, 2);
-    StudentFlagSummary flags = studentFlagSummary(profile.name);
 
-    // Fixed-height card. The old card sized itself to its bullet count
-    // and reserved ~60px of dead space below the last bullet; the grid
-    // read as unfinished. Every region below now has a job.
     const int PAD       = S(20);
     const int nameH     = S(26);
     const int dnaH      = S(18);
     const int noteH     = S(19);
-    const int footerH   = S(28);
-    int cardH = PAD + nameH + S(10) + dnaH + S(12)
-              + (int)noteLines.size() * noteH + S(10)
-              + footerH + S(6);
+    int cardH = studentProfileCardHeight(noteLines.size());
 
     RECT card = {x, y, x + w, y + cardH};
     drawCard(hdc, card, GRAY_850, GRAY_700, 10);
@@ -204,34 +282,6 @@ static int drawStudentProfileCard(HDC hdc, int x, int y, int w,
     return cardH;
 }
 
-// Draw all student profiles section
-// Determines which block/section a student belongs to by finding any
-// of their files in the sync manifest and reading its block field.
-// Returns "General" if no manifest entry is found (e.g. manually
-// imported files never went through Classroom sync, so there's no
-// block information available for them).
-static std::string determineStudentBlock(
-    const std::string& studentName,
-    const std::map<std::string,SyncManifestEntry>& manifest)
-{
-    std::string lower = studentName;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-
-    for (const auto& kv : g_analysisResults.allPairs) {
-        for (const std::string* fname : {&kv.filenameA, &kv.filenameB}) {
-            std::string fl = *fname;
-            std::transform(fl.begin(), fl.end(), fl.begin(), ::tolower);
-            if (fl.find(lower) == std::string::npos) continue;
-
-            auto hit = manifest.find(*fname + ".c");
-            if (hit != manifest.end() && !hit->second.block.empty()) {
-                return hit->second.block;
-            }
-        }
-    }
-    return "General";
-}
-
 // Draws the block sub-tab bar for the Classes page: "All" plus one tab
 // per unique block found among current student profiles (e.g.
 // "Programming 1 - BSIT Block 1"). Drawn at a FIXED position (like the
@@ -241,13 +291,9 @@ static std::string determineStudentBlock(
 // entirely on what's currently synced.
 int drawBlockTabBar(HDC hdc, int x, int y, int width) {
     const AnalysisResults& r = g_analysisResults;
-    std::map<std::string,SyncManifestEntry> manifest =
-        gc_loadSyncManifest(toNarrowGC(g_state.dataFolder));
+    const StudentsTabCache& cache = studentsTabCache();
 
-    std::set<std::string> uniqueBlocks;
-    for (const auto& profile : r.profiles) {
-        uniqueBlocks.insert(determineStudentBlock(profile.name, manifest));
-    }
+    std::set<std::string> uniqueBlocks(cache.blocks.begin(), cache.blocks.end());
     g_blockTabNames.assign(uniqueBlocks.begin(), uniqueBlocks.end());
     // "General" (no block info) sorts last, real block names first
     std::sort(g_blockTabNames.begin(), g_blockTabNames.end(),
@@ -283,10 +329,7 @@ int drawBlockTabBar(HDC hdc, int x, int y, int width) {
     // Build the full chip list: "All" first (count = every student),
     // then each block name with its own student count.
     std::map<std::string,int> blockCounts;
-    for (const auto& profile : r.profiles) {
-        std::string b = determineStudentBlock(profile.name, manifest);
-        blockCounts[b]++;
-    }
+    for (const auto& b : cache.blocks) blockCounts[b]++;
 
     std::vector<std::pair<int,std::wstring>> chipItems; // {tabIdx, label}
     chipItems.push_back({-1, L"All"});
@@ -382,8 +425,7 @@ int drawStudentProfiles(HDC hdc, int x, int y, int width) {
     // comparison, which still spans all blocks (a same-code submission
     // across two different sections is still real evidence worth
     // flagging, not noise to isolate away).
-    std::map<std::string,SyncManifestEntry> syncManifest =
-        gc_loadSyncManifest(toNarrowGC(g_state.dataFolder));
+    const StudentsTabCache& cache = studentsTabCache();
 
     // Live search filter (spec §5.8) — skip any profile whose name
     // doesn't contain the current search text. Empty filter = show all.
@@ -395,16 +437,13 @@ int drawStudentProfiles(HDC hdc, int x, int y, int width) {
     };
 
     // Flagged-appearance count per student, needed for the "Flagged"
-    // sort mode. Computed once here rather than per-card.
-    std::vector<int> flagCounts(r.profiles.size(), 0);
-    for (size_t i = 0; i < r.profiles.size(); ++i)
-        flagCounts[i] = studentFlagSummary(r.profiles[i].name).count;
+    // sort mode — from the per-run cache.
+    auto flagCount = [&](int i) { return cache.flags[i].count; };
 
     std::map<std::string, std::vector<int>> byBlock; // block name -> profile indices
     for (size_t i = 0; i < r.profiles.size(); ++i) {
         if (!passesSearch(r.profiles[i].name)) continue;
-        std::string block = determineStudentBlock(r.profiles[i].name, syncManifest);
-        byBlock[block].push_back((int)i);
+        byBlock[cache.blocks[i]].push_back((int)i);
     }
 
     // Apply sort mode within each block group.
@@ -423,7 +462,7 @@ int drawStudentProfiles(HDC hdc, int x, int y, int width) {
                 break;
             case SORT_FLAGGED:
                 std::sort(indices.begin(), indices.end(), [&](int a, int b) {
-                    return flagCounts[a] > flagCounts[b];
+                    return flagCount(a) > flagCount(b);
                 });
                 break;
         }
@@ -492,7 +531,14 @@ int drawStudentProfiles(HDC hdc, int x, int y, int width) {
         for (int idx : indices) {
             const auto& profile = r.profiles[idx];
             int cardX = leftColumn ? gridX : gridX + colW + padding;
-            int h = drawStudentProfileCard(hdc, cardX, y, colW, profile);
+            // Viewport culling (scale perf fix C) — same bounds check
+            // as Flagged Pairs. Height is computed without drawing so
+            // the layout, hit rect and focusable below are identical
+            // whether or not the card is actually painted this frame.
+            int h = studentProfileCardHeight(condenseStyleNotes(profile.styleNotes, 2).size());
+            bool visible = (y + h >= -200) && (y <= g_viewportH + 200);
+            if (visible)
+                drawStudentProfileCard(hdc, cardX, y, colW, profile, cache.flags[idx]);
 
             StudentCardRect hit;
             hit.x = cardX;
@@ -656,8 +702,8 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
     // the internally-encoded filename used for parsing. Files that
     // weren't synced via Classroom (manually imported) simply won't
     // have an entry and fall back to showing the raw filename.
-    std::map<std::string,SyncManifestEntry> syncManifest =
-        gc_loadSyncManifest(toNarrowGC(g_state.dataFolder));
+    const std::map<std::string,SyncManifestEntry>& syncManifest =
+        studentsTabCache().manifest;
 
     std::vector<std::pair<int,const PairAnalysisDisplay*>> related; // {flaggedPairs index, ptr}
     for (int fpi = 0; fpi < (int)g_analysisResults.flaggedPairs.size(); ++fpi) {
