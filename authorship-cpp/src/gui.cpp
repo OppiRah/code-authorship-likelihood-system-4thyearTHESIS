@@ -1951,8 +1951,11 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
 
     SelectObject(hdcScreen, g_hFontSmall);
     SetTextColor(hdcScreen, g_appModal.sourceMissing ? COLOR_WARNING : GRAY_400);
+    // Bottom pinned to the fixed 60px title block, not header.bottom —
+    // in compare mode the header also holds the toolbar row, and a
+    // DT_VCENTER rect spanning both drew the path over the File A/B tabs.
     RECT subR = {geom.header.left + S(20), geom.header.top + S(34),
-                  geom.closeBtn.left - S(10), geom.header.bottom - S(4)};
+                  geom.closeBtn.left - S(10), geom.header.top + S(56)};
     DrawTextW(hdcScreen, g_appModal.sourceSubtitle.c_str(), -1, &subR,
               DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
