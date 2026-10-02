@@ -195,7 +195,10 @@ static AssignChoice showAssignDialog(HWND parent, const std::string& filename,
     g_assignErrorLabel = CreateWindowW(L"STATIC", L"",
         WS_CHILD | SS_NOTIFY,
         S(20), S(385), DW-S(40), S(20), dlg, nullptr, hInst, nullptr);
-    HFONT errFont = CreateFontW(S(-13), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+    // Created once and reused: the dialog is opened repeatedly, and a
+    // font per open was never deleted (DPI scale is fixed at startup, so
+    // the cached size stays right).
+    static HFONT errFont = CreateFontW(S(-13), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         DEFAULT_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     SendMessageW(g_assignErrorLabel, WM_SETFONT, (WPARAM)errFont, TRUE);
