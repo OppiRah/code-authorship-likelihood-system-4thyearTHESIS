@@ -551,6 +551,7 @@ extern std::string generateStudentSimilarityReport(const std::string& studentNam
 extern AnalysisResults g_analysisResults;
 extern void setAnalysisProgressCallback(AnalysisProgressCallback cb);
 extern std::string studentNameForFile(const std::string& filename);
+extern std::string periodForFile(const std::string& filename);
 
 // ─────────────────────────────────────────────────────────────
 // SHARED GLOBALS — declared here, DEFINED ONCE each, split across
@@ -706,8 +707,6 @@ void syncAiSummaryCheckbox(bool tickIfEnabled);
 extern std::vector<RECT> g_aiSetupLinkRects;
 std::wstring truncateMiddle(HDC hdc, const std::wstring& text, int maxWidth);
 void updateUI();
-std::string wideToUtf8(const std::wstring& w);
-std::string extractPeriodGC(const std::string& filename);
 void handleUnclassifiedAction(HWND hwnd, int fileIdx, bool isDelete);
 std::wstring periodDisplayLabelGC(const std::string& period);
 void closeStudentDetail(HWND hwnd);

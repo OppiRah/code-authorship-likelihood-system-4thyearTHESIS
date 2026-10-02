@@ -748,7 +748,7 @@ static int drawFlaggedPairCollapsedRow(HDC hdc, int x, int y, int width,
     // Period + severity badge + chevron, right side
     SelectObject(hdc, g_hFontSmall);
     SetTextColor(hdc, GRAY_400);
-    std::wstring period = periodDisplayLabelGC(extractPeriodGC(pair.filenameA));
+    std::wstring period = periodDisplayLabelGC(periodForFile(pair.filenameA));
     RECT periodRect = {x + width - S(250), y + S(6), x + width - S(110), y + S(32)};
     DrawTextW(hdc, period.c_str(), -1, &periodRect,
               DT_RIGHT | DT_VCENTER | DT_SINGLELINE);

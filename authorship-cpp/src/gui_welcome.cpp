@@ -10,7 +10,7 @@
 // one file lets all three of those globals stay private.
 //
 // Assembled from five separate regions of gui.cpp; order within each
-// is unchanged. getULLoadingLogo, utf8ToWide, analysisPhaseLabel and
+// is unchanged. getULLoadingLogo, analysisPhaseLabel and
 // drawSourceIcon came along because this file is their only caller.
 // ─────────────────────────────────────────────────────────────
 
@@ -35,14 +35,6 @@ static Image* getULLoadingLogo() {
         }
     }
     return s_logoImg;
-}
-
-static std::wstring utf8ToWide(const std::string& s) {
-    if (s.empty()) return L"";
-    int sz = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(sz - 1, 0);
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], sz);
-    return w;
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -91,13 +83,13 @@ void analysisThread(std::wstring folder, bool useAI) {
             return !g_analysisCancelRequested.load();
         });
 
-    std::string folderUtf8 = wideToUtf8(folder);
+    std::string folderUtf8 = toNarrowGC(folder);
 
     std::string resultMsg = runAnalysisPipeline(folderUtf8, useAI);
 
     setAnalysisProgressCallback(nullptr); // detach before this thread exits
 
-    g_state.progressMsg = utf8ToWide(resultMsg);
+    g_state.progressMsg = s2w(resultMsg);
 
     PostMessage(g_hMainWindow, WM_ANALYSIS_COMPLETE, 0, 0);
 }

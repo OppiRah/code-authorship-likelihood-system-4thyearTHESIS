@@ -646,15 +646,6 @@ static HBRUSH g_hbrMain    = nullptr;
 // ═════════════════════════════════════════════════════════════
 // UTILITY: wide string conversion
 // ═════════════════════════════════════════════════════════════
-std::string wideToUtf8(const std::wstring& w) {
-    if (w.empty()) return "";
-    int sz = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1,
-                                  nullptr, 0, nullptr, nullptr);
-    std::string s(sz - 1, 0);
-    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1,
-                         &s[0], sz, nullptr, nullptr);
-    return s;
-}
 
 
 // ═════════════════════════════════════════════════════════════
@@ -3736,25 +3727,6 @@ void clearExactDuplicatesFilter(HWND hwnd) {
     g_filterExactDuplicatesOnly = false;
     g_scrollY = 0;
     InvalidateRect(hwnd, nullptr, FALSE);
-}
-
-// Lightweight local mirror of main.cpp's extractPeriod() (also static,
-// not exported) — same reasoning as extractStudentNameGC above: good
-// enough for display purposes, this time for the Flagged Pairs
-// collapsed-row period label (spec §5.9 mockup: "Final Exam").
-std::string extractPeriodGC(const std::string& filename) {
-    std::string name = filename;
-    size_t dot = name.rfind('.');
-    if (dot != std::string::npos) name = name.substr(0, dot);
-    size_t delimPos = name.find("__");
-    if (delimPos == std::string::npos) return "general";
-    std::string tag = name.substr(0, delimPos);
-    std::transform(tag.begin(), tag.end(), tag.begin(), ::tolower);
-    if (tag.find("semifinal") != std::string::npos) return "semifinal";
-    if (tag.find("midterm")   != std::string::npos) return "midterm";
-    if (tag.find("final")     != std::string::npos) return "final";
-    if (tag.find("prelim")    != std::string::npos) return "prelim";
-    return "general";
 }
 
 // Display label for the period bucket above — "Final Exam" per the

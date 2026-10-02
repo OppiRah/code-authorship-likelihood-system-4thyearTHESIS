@@ -141,7 +141,7 @@ static void syncFetchThread(HWND sheet) {
         for (const auto& a : assignments) {
             SyncAssignmentRow row;
             row.assignment = a;
-            row.period = wideToUtf8(periodFromTitle(a.title));
+            row.period = toNarrowGC(periodFromTitle(a.title));
             row.checked = (row.period != "Prelim"); // exclude-prelims default ON
             node.rows.push_back(row);
         }

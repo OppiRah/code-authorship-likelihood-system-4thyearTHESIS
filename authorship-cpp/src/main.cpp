@@ -107,12 +107,10 @@ static std::string extractStudentName(const std::string& filename) {
     return (start != std::string::npos) ? name.substr(start) : filename;
 }
 
-// Non-static export of extractStudentName for the GUI (gui_students.cpp's
-// per-run Classes cache), so it groups files under exactly the same
-// student identity the pipeline used to build profiles and pairs —
-// gui.cpp's extractStudentNameGC is only a partial mirror (no legacy
-// "act1"/"finalsexam" prefix or "_N" suffix stripping). Display-only
-// use; does not participate in scoring.
+// Non-static export of extractStudentName for the GUI (Classes cache,
+// student detail, CSV export), so it shows files under exactly the
+// same student identity the pipeline used to build profiles and
+// pairs. Display-only use; does not participate in scoring.
 std::string studentNameForFile(const std::string& filename) {
     return extractStudentName(filename);
 }
@@ -238,6 +236,12 @@ static std::string extractPeriod(const std::string& filename) {
     if (tag.find("final")     != std::string::npos) return "final";
     if (tag.find("prelim")    != std::string::npos) return "prelim";
     return "general";
+}
+
+// Non-static export of extractPeriod for the GUI's period labels
+// (Flagged Pairs rows, student detail). Display-only use.
+std::string periodForFile(const std::string& filename) {
+    return extractPeriod(filename);
 }
 
 // Legacy helper retained for compatibility — treats Exam category

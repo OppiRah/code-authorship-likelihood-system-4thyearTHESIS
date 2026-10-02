@@ -1000,7 +1000,7 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
             const std::string& other = (pair->studentA.studentName == profile.name)
                 ? pair->studentB.studentName : pair->studentA.studentName;
             std::wstring vs = L"vs " + s2w(other) + L"  ·  " +
-                periodDisplayLabelGC(extractPeriodGC(pair->filenameA));
+                periodDisplayLabelGC(periodForFile(pair->filenameA));
             SelectObject(hdc, g_hFontBodyNew);
             SetTextColor(hdc, GRAY_200);
             RECT vsR = {pillR.right + S(10), rowR.top, scR.left - S(8), rowR.bottom};
