@@ -17,6 +17,16 @@ Evidence labels used below:
 - **Inferred** — reasoned from code, not exercised.
 - **Not verified** — called out explicitly.
 
+> **Implementation status (2026-10-02, branch `optimization-pass`).**
+> Done, one commit each: P0-1…P0-5, P1-1…P1-7 (P1-4: removed;
+> P1-5 split into a bug fix and a dedupe), D-1…D-5 (D-5: cap of 50
+> pairs), R-1, R-2, PF-1 (with PF-2 profiling). Skipped as optional: R-3,
+> PKCE. Not done, pending a decision: the stale View > "View Student
+> Profiles" message, and a new PF-2 finding — `autoTagManualBlock`
+> re-reads the whole manifest once per file (first load of the
+> four-block dataset ≈ 41 s). T-1/T-2 remain team decisions. Line
+> numbers and sizes below describe the code *before* these changes.
+
 Earlier documents: `docs/ARCHITECTURE.md` (file-by-file reference) and
 `docs/CLAUDE_CODE_AUDIT.md` (2026-09-17 audit of formulas/internals) are
 still largely accurate for the analysis core; this assessment does not

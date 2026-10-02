@@ -56,21 +56,24 @@ diff of every extracted function body against the committed original
 (all identical, modulo the mechanical dedent and — once — an added
 parameter the build caught, see below).
 
-The file structure is now 7 split files, `gui.cpp`, and the
-`gui_common.h` contract, all wired into `compile.bat`:
+The GUI is now `gui.cpp`, nine split files and the `gui_common.h`
+contract, all wired into `compile.bat` (line counts as of 2026-10-02,
+after the optimization pass — see that section below):
 
 | File | Lines |
 |---|---|
-| `src/gui.cpp` | 3,981 |
-| `src/gui_flagged.cpp` | 1,363 |
-| `src/gui_sync_sheet.cpp` (`SyncSheetProc` + `sync*` helpers/threads) | 1,045 |
-| `src/gui_students.cpp` | 1,048 |
-| `src/gui_overview.cpp` | 785 |
-| `src/gui_help_carousel.cpp` | 646 |
-| `src/gui_welcome.cpp` | 505 |
-| `src/gui_assign_dialog.cpp` | 348 |
+| `src/gui.cpp` | 4,704 |
+| `src/gui_flagged.cpp` | 1,341 |
+| `src/gui_students.cpp` | 1,306 |
+| `src/gui_source_view.cpp` (View source modal, split 2026-10-02) | 1,091 |
+| `src/gui_sync_sheet.cpp` (`SyncSheetProc` + `sync*` helpers/threads) | 1,087 |
+| `src/gui_overview.cpp` | 1,019 |
+| `src/gui_help_carousel.cpp` | 644 |
+| `src/gui_welcome.cpp` | ~500 |
+| `src/gui_assign_dialog.cpp` | ~350 |
+| `src/gui_ai_settings.cpp` | ~300 |
 
-`include/gui_common.h` (613 lines) holds the shared contract (extern
+`include/gui_common.h` (~820 lines) holds the shared contract (extern
 globals, shared types/constants, function prototypes) for all of the
 above. `ContentProc` and `SyncSheetProc` themselves remain in `gui.cpp`
 and `gui_sync_sheet.cpp` respectively — only their per-branch bodies
@@ -149,12 +152,11 @@ user's request (the Classes roster rewrite depended on #1):
    now set from the actually-drawn back link inside
    `drawStudentDetailPage`.
 
-Still flagged, not fixed: a native file dialog with OK (e.g. Export CSV
-Save As) changes the process working directory, and `api_key.txt` /
-`report.html` are opened by relative path — the next run can't find the
-API key. Overview "High similarity" (token label "High Similarity",
-all pairs) and the Flagged tab's "High" filter (flagged, combined
-≥85%) count different things.
+Still flagged, not fixed: Overview "High similarity" (token label "High
+Similarity", all pairs) and the Flagged tab's "High" filter (flagged,
+combined ≥85%) count different things. (The working-directory bug once
+listed here — file dialogs changing the cwd and files opened by
+relative path — was fixed 2026-10-02, D-2.)
 
 ## UI pass 2026-10-01 (uncommitted at time of writing)
 
@@ -174,10 +176,11 @@ drag-resizable (240–400 design px, `g_sidebarW`). Minimum fonts raised
 
 - **The current file structure is the plan going forward** — the original
   9-file/`gui_common.cpp`-hosts-`ContentProc` sketch is superseded, not
-  something to force the codebase back toward. Seven split files exist
+  something to force the codebase back toward. Nine split files exist
   today (`gui_sync_sheet.cpp`, `gui_assign_dialog.cpp`,
   `gui_help_carousel.cpp`, `gui_welcome.cpp`, `gui_overview.cpp`,
-  `gui_flagged.cpp`, `gui_students.cpp`), plus `gui.cpp` and the
+  `gui_flagged.cpp`, `gui_students.cpp`, `gui_ai_settings.cpp`,
+  `gui_source_view.cpp`), plus `gui.cpp` and the
   `gui_common.h` contract. Decided 2026-08-24: `gui_common.cpp`
   consolidation of the shared globals is skipped — they stay defined
   across `gui.cpp` and whichever split file already owns that subsystem
@@ -230,8 +233,7 @@ personal secret) still ships as a file. `make_release.bat` builds
 
 Known, not changed: the sync sheet goes straight to browser sign-in when
 the saved access token is expired (it doesn't try the refresh token
-first); per-student `similarity_report_*.html` and other outputs are
-still written relative to the working directory.
+first).
 
 ## Batch report.html + CLI mode removed (2026-10-02)
 
@@ -243,28 +245,72 @@ post-analysis auto-open, `AppState::lastReport`,
 "ANALYSIS COMPLETE" audit entry. `runAnalysisPipeline(dataFolder, useAI)`
 no longer takes an output path. CLI mode is also removed: `main()` only
 launches the GUI. Still kept: the per-student "Generate Similarity
-Report" button (`similarity_report_<name>.html`) and the automatic
-`<data>/student_reports/report_<name>.html` (`generateStudentReports`).
+Report" button (`similarity_report_<name>.html`). (The automatic
+`generateStudentReports` was removed too in the optimization pass —
+it never produced output.)
+
+## Optimization pass (2026-10-02, branch `optimization-pass`)
+
+Implemented from `docs/CODEBASE_OPTIMIZATION_ASSESSMENT.md`, one
+checkpoint per commit. Thesis results unchanged: every checkpoint passed
+the golden check byte-identically.
+
+- **Regression check — run before committing anything in `src/`:**
+  `authorship-cpp\tests\run_golden.bat` runs the real pipeline (AI off)
+  on the committed synthetic datasets (`stress_test/`,
+  `stress_test_bscs7/`) and compares SHA-256 hashes of every score
+  against `tests/golden/expected/`. `--update` only for a change that is
+  *meant* to alter results. Manual GUI smoke checklist in
+  `tests/README.md`. `.gitattributes` keeps those files byte-exact.
+- **Structure:** `main.cpp` is just `main()`; the pipeline is in
+  `analysis_pipeline.cpp`, the per-student report in
+  `student_report.cpp`; the View source modal in `gui_source_view.cpp`.
+- **Paths (`app_paths.h`):** every `std::string` path is **UTF-8**;
+  open files with `pathFromUtf8()`, call wide (`*W`) Win32 APIs with
+  `widenUtf8()`. Assets load from the exe's folder; Classroom settings go
+  to `%LOCALAPPDATA%\CALSS`; similarity reports to
+  `Documents\CALSS Reports`. Non-ASCII folders/files (e.g. "Peña") now
+  load.
+- **AI:** only Tier 1/Tier 2 calls remain (legacy summary removed), on the
+  50 highest-scoring flagged pairs (`GEMINI_MAX_PAIRS`); explicit WinHTTP
+  timeouts.
+- **Security/correctness:** OAuth listener bound to 127.0.0.1 with a real
+  3-minute timeout and a checked `state`; `progressMsg` race fixed; CSV
+  export uses the pipeline's student-name parser.
+- **Performance:** each compared file is tokenized/feature-extracted once
+  per run (four-block dataset ~28 s → ~7.4 s; one section ~1.5 s →
+  ~0.55 s).
+- **Open, not done:** `autoTagManualBlock` re-reads the whole manifest
+  per file (first load of the four-block dataset ~41 s); View > "View
+  Student Profiles" still shows a stale placeholder message. Thesis
+  questions T-1 (LCS 500-token cap vs. full-length denominator) and T-2
+  (flag rate vs. `manifest.csv` answer keys) are team decisions.
 
 ## Build
 
 ```
 x86_64-w64-mingw32-g++ -std=c++17 -O2 -static-libgcc -static-libstdc++ ...
--lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus
+-lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus -ladvapi32
 ```
 
 `compile.bat` uses an explicit file list — every new translation unit must
 be added manually. (2026-10-02: added `src/gui_ai_settings.cpp`,
-`src/secret_store.cpp`, and `-ladvapi32` for Credential Manager.)
+`src/secret_store.cpp`, and `-ladvapi32` for Credential Manager; then
+`src/app_paths.cpp`, `src/analysis_pipeline.cpp`,
+`src/student_report.cpp`, `src/gui_source_view.cpp` — 22 units.)
 
 ## Key files
-`gui.cpp`, `gui_sync_sheet.cpp`, `gui_assign_dialog.cpp`,
-`gui_help_carousel.cpp`, `gui_welcome.cpp`, `gui_overview.cpp`,
-`gui_flagged.cpp`, `gui_students.cpp`, `gui_common.h`, `main.cpp`,
-`results_data.h`, `gemini.h`/`gemini.cpp`, `compile.bat`.
+`gui.cpp`, `gui_source_view.cpp`, `gui_sync_sheet.cpp`,
+`gui_assign_dialog.cpp`, `gui_help_carousel.cpp`, `gui_welcome.cpp`,
+`gui_overview.cpp`, `gui_flagged.cpp`, `gui_students.cpp`,
+`gui_ai_settings.cpp`, `gui_common.h`, `main.cpp`,
+`analysis_pipeline.cpp`, `student_report.cpp`, `app_paths.h`,
+`results_data.h`, `gemini.h`/`gemini.cpp`, `compile.bat`,
+`tests/run_golden.bat`.
 
 ## Assets
 `ulccslogo.png` — in-app seal (sidebar). `ulcclogoloadingscreen.png` —
 loading-screen-only seal (new, added this session). Both load via a
 load-once/fallback-to-drawn-circle helper (`getULLogo()` /
-`getULLoadingLogo()` respectively) and must ship next to the `.exe`.
+`getULLoadingLogo()` respectively) and must ship next to the `.exe`
+(loaded from the exe's folder, not the working directory).

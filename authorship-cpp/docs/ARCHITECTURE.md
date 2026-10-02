@@ -9,8 +9,24 @@ external integrations: Google Gemini (AI summaries) and Google Classroom
 (OAuth 2.0, submission download). Pipeline: tokenization/token similarity →
 14-feature stylometric extraction → KNN classification (K=3).
 
-This document covers every `.h` in `include/` and every `.cpp` in `src/` —
-26 files total, ~16,500 lines. Grouped by layer, not alphabetically.
+This document covers every `.h` in `include/` and every `.cpp` in `src/`,
+grouped by layer, not alphabetically.
+
+> **Updated 2026-10-02 (optimization pass).** The file table and the
+> pipeline section below are current. Elsewhere, read these changes over
+> the older per-file text:
+> - `main.cpp` was split into `main.cpp` (entry point only),
+>   `analysis_pipeline.cpp` and `student_report.cpp`. CLI mode, the batch
+>   `report.html` (`htmlReport`) and `generateStudentReports` are gone.
+> - The "View source" modal moved from `gui.cpp` to `gui_source_view.cpp`.
+> - New: `app_paths.h/.cpp` — file locations independent of the working
+>   directory, and the rule that every `std::string` path is UTF-8.
+> - New since the original write-up: `secret_store.h/.cpp` (Windows
+>   Credential Manager) and `gui_ai_settings.cpp` (File > AI Settings).
+> - Only the Tier 1/Tier 2 Gemini calls remain (the legacy single-blob
+>   summary was removed), capped at the 50 highest-scoring flagged pairs
+>   (`GEMINI_MAX_PAIRS`).
+> - Regression check: `tests/run_golden.bat` (see `tests/README.md`).
 
 ---
 
@@ -18,23 +34,29 @@ This document covers every `.h` in `include/` and every `.cpp` in `src/` —
 
 | File | Layer | Purpose |
 |---|---|---|
-| `main.cpp` | Pipeline | Entry point, HTML report generation, the full analysis pipeline |
+| `main.cpp` | Entry | `main()` → `runGUI()` |
+| `analysis_pipeline.cpp` | Pipeline | Folder loading, file identity/category/period, `runAnalysisPipeline`, `g_analysisResults` |
+| `student_report.cpp` | Pipeline | Per-student printable HTML report |
 | `tokenizer.h`/`.cpp` | Pipeline | Token extraction + Jaccard/LCS similarity |
 | `features.h`/`.cpp` | Pipeline | 14-feature stylometric extraction |
 | `knn_model.h`/`.cpp` | Pipeline | Per-student KNN authorship scorer |
 | `similarity.h`/`.cpp` | Pipeline | Pairwise similarity engine (combines tokenizer + features) |
-| `gemini.h`/`.cpp` | Integration | Gemini API calls (AI summaries, evidence narratives) |
+| `gemini.h`/`.cpp` | Integration | Gemini API calls (pair narratives, cross-pair patterns, key test) |
 | `google_classroom.h`/`.cpp` | Integration | OAuth + Classroom API + submission download |
-| `results_data.h` | Data | GUI-facing display structs; the main↔GUI contract |
+| `secret_store.h`/`.cpp` | Integration | Gemini key + Classroom token in Windows Credential Manager |
+| `app_paths.h`/`.cpp` | Support | Exe/AppData/Documents locations; UTF-8 path helpers |
+| `results_data.h` | Data | GUI-facing display structs; the pipeline↔GUI contract |
 | `audit_log.h`/`.cpp` | Data | Timestamped audit log + SHA-256 |
 | `gui_common.h` | GUI | Shared contract binding all `gui_*.cpp` files together |
-| `gui.cpp` | GUI | Original monolith; window chrome, sidebar, ContentProc dispatcher |
+| `gui.cpp` | GUI | Window chrome, sidebar, ContentProc dispatcher, shared widgets |
+| `gui_source_view.cpp` | GUI | "View source" modal (compare mode, highlights, scrolling) |
 | `gui_sync_sheet.cpp` | GUI | Google Classroom sync modal (CONNECT→CHOOSE→SYNCING→DONE) |
 | `gui_assign_dialog.cpp` | GUI | Unclassified-file assignment dialog |
 | `gui_help_carousel.cpp` | GUI | Multi-step Quick Start Guide overlay |
+| `gui_ai_settings.cpp` | GUI | File > AI Settings dialog; legacy secret migration |
 | `gui_welcome.cpp` | GUI | Idle/welcome screen, splash screen, analysis thread |
-| `gui_overview.cpp` | GUI | Overview tab (stats dashboard, AI summary) |
-| `gui_flagged.cpp` | GUI | Flagged Pairs tab (largest split file) |
+| `gui_overview.cpp` | GUI | Overview tab (stats, AI cross-pair findings) |
+| `gui_flagged.cpp` | GUI | Flagged Pairs tab |
 | `gui_students.cpp` | GUI | Students/Classes tab |
 | `gui.h` | GUI | One-function public entry point (`runGUI`) |
 
@@ -42,14 +64,13 @@ This document covers every `.h` in `include/` and every `.cpp` in `src/` —
 
 ## Analysis pipeline
 
-### `main.cpp`
+### `analysis_pipeline.cpp` (and `main.cpp`, `student_report.cpp`)
 
-**Purpose.** Entry point and orchestrator. Owns the analysis pipeline
-(`runAnalysisPipeline`), the legacy HTML report generator, per-student
-similarity reports, and the file-categorization/student-name-extraction
+**Purpose.** Orchestrator. Owns the analysis pipeline
+(`runAnalysisPipeline`) and the file-categorization/student-name-extraction
 logic every other layer depends on to make sense of a folder full of `.c`
-files. At 2,474 lines it's the second-largest file in the project after
-`gui.cpp`.
+files. `main.cpp` is now just `main()` → `runGUI()`;
+`student_report.cpp` holds `generateStudentSimilarityReport`.
 
 **Key types/globals.**
 - `FileCategory` (`Exam`/`Quiz`/`Activity`/`Unclassified`) — the priority
@@ -58,7 +79,8 @@ files. At 2,474 lines it's the second-largest file in the project after
 - `LanguageCheck` — result of `checkLanguage()`'s "is this actually C" scan.
 - `g_analysisResults` (`AnalysisResults`, defined here, `extern`-declared in
   `gui_common.h`) — the single global results object every GUI screen reads
-  from. This is the load-bearing bridge between the pipeline and the GUI.
+  from. Written only by the worker thread; the GUI reads it only while
+  `g_state.analysisComplete` is true (rule documented in `gui_common.h`).
 - `g_analysisProgressCb` (static) — the registered `AnalysisProgressCallback`
   (type from `results_data.h`), set by the GUI before a run via
   `setAnalysisProgressCallback()`.
@@ -66,43 +88,41 @@ files. At 2,474 lines it's the second-largest file in the project after
 **Key functions.**
 - `extractStudentName` — parses a filename (Classroom-synced or manual) down
   to the student's name, stripping the `{period}{type}__` prefix, the
-  `_ASGN######` fingerprint, and multi-attachment `_N` suffixes.
+  `_ASGN######` fingerprint, and multi-attachment `_N` suffixes. Exported
+  to the GUI as `studentNameForFile` (Classes, student detail, CSV export).
 - `categorizeFile` / `extractPeriod` / `isExamFile` / `isProfileBuildingFile`
   — the categorization/period hierarchy; only Activity/Quiz files build a
   student's style profile, only Exam files get pairwise-compared, and
   comparison is period-scoped (a Midterm never compares against a Final).
+  `extractPeriod` is exported to the GUI as `periodForFile`.
 - `checkLanguage` — lightweight text-pattern scan (not a parser) that flags
   Java/Python/JavaScript/C++ submitted with a `.c` extension, so a wrong-
   language file doesn't silently corrupt a style profile or produce a
   misleading "Low Likelihood" score.
 - `loadFolder` — two-level `.c` file discovery (root + one level of
-  subfolders, the subfolder name becoming that file's "block").
-- `htmlReport` — builds the legacy standalone HTML report (own inline
-  CSS, own color scheme, independent of the GUI's dark theme).
-- `generateStudentReports` / `generateStudentSimilarityReport` — per-student
-  HTML reports for severe (≥90%) flagged pairs; the latter is `extern`-
-  declared in `gui_common.h` for the Students tab's "Generate Similarity
-  Report" button.
+  subfolders, the subfolder name becoming that file's "block"), using the
+  wide Win32 API; keys and paths are UTF-8.
+- `generateStudentSimilarityReport` (`student_report.cpp`) — per-student
+  HTML report for the Students tab's "Generate Similarity Report" button,
+  written to `Documents\CALSS Reports`.
 - `runAnalysisPipeline` — the actual pipeline: load → language-check →
   build profiles (with cold-start fallback for students with no
-  Activity/Quiz submissions) → pairwise-compare exam files (period-grouped)
-  → AI summary (legacy single-blob + tiered) → write HTML → populate
-  `g_analysisResults`. Reports progress via `reportProgress()`/the
-  registered callback at real checkpoints (not simulated).
-- `main` — dispatches to `runGUI()` (no args, the normal path) or CLI mode
-  (a data-folder arg, "kept for testing and scripting").
+  Activity/Quiz submissions) → pairwise-compare exam files (period-grouped;
+  each file tokenized and feature-extracted once per run and reused) →
+  authorship scoring for flagged pairs → optional Tier 1/Tier 2 AI calls on
+  the top `GEMINI_MAX_PAIRS` pairs → populate `g_analysisResults`. Reports
+  progress via `reportProgress()`/the registered callback at real
+  checkpoints (not simulated).
 
 **Depends on:** `tokenizer.h`, `features.h`, `knn_model.h`, `similarity.h`,
-`gemini.h`, `gui.h`. Does **not** include `gui_common.h` or `results_data.h`
-directly for its own struct definitions — `AnalysisResults` et al. come
-from `results_data.h` transitively via `gemini.h`.
+`gemini.h`, `app_paths.h`; not on any GUI header.
 
-**Depended on by:** `gui_common.h` forward-declares `runAnalysisPipeline`,
-`generateStudentSimilarityReport`, `g_analysisResults`, and
-`setAnalysisProgressCallback` as `extern` — every `gui_*.cpp` file reaches
-into `main.cpp` through those four names. `gui_welcome.cpp`'s
-`analysisThread()` is the actual caller of `runAnalysisPipeline` and
-`setAnalysisProgressCallback` in the running app.
+**Depended on by:** `gui_common.h` declares `runAnalysisPipeline`,
+`generateStudentSimilarityReport`, `g_analysisResults`,
+`setAnalysisProgressCallback`, `studentNameForFile` and `periodForFile` as
+`extern`. `gui_welcome.cpp`'s `analysisThread()` is the actual caller of
+`runAnalysisPipeline` and `setAnalysisProgressCallback` in the running app;
+`tests/golden_harness.cpp` calls it for the regression check.
 
 ---
 
