@@ -1,0 +1,5 @@
+# Byte-exact files: the golden-output regression check hashes analysis
+# output, and the datasets are its input. Never convert line endings.
+stress_test/** -text
+stress_test_bscs7/** -text
+authorship-cpp/tests/golden/** -text
