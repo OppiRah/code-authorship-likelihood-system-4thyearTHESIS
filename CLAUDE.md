@@ -286,6 +286,13 @@ the golden check byte-identically.
   questions T-1 (LCS 500-token cap vs. full-length denominator) and T-2
   (flag rate vs. `manifest.csv` answer keys) are team decisions.
 
+## Release readiness (Phase 4, 2026-10-02)
+
+`authorship-cpp/docs/RELEASE_READINESS.md` is the current release record:
+what ships, where the app reads/writes, known issues, thesis-methodology
+notes and facts for the installer phase. Manual GUI smoke checklist:
+`authorship-cpp/tests/README.md`.
+
 ## Build
 
 ```

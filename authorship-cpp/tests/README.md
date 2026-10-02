@@ -64,23 +64,83 @@ First load of a folder with subfolders is much slower (four blocks:
 ~41 s just to load) because `autoTagManualBlock` re-reads the whole
 `calss_sync_manifest.jsonl` once per file — not addressed by PF-1.
 
-## GUI smoke checklist
+## GUI smoke checklist (manual)
 
-Build with `compile.bat`, launch `authorship.exe`, and tick each item.
+CALSS has no automated GUI tests. Run this by hand before merging a
+change that touches the GUI, file handling or integrations. Build with
+`compile.bat` first. Items marked **[you]** need your Gemini key, Google
+account or a second PC; everything else needs only the repo.
 
-1. Splash screen shows the UL seal; main window opens on the welcome screen.
-2. Load a folder (`../stress_test_bscs7/Programming1`): file count appears in the sidebar.
-3. Import files: picking two `.c` files copies them in and shows a toast.
-4. Run analysis with AI **off**: progress bar advances through phases; Cancel works on a second run.
-5. Overview: headline, stat row and risk bar render; no AI box errors.
-6. Flagged Pairs: list renders; severity filter dropdown and search box filter pairs; expand a pair; Copy findings; View source (single file and compare, gold highlights, scrolling).
-7. Export CSV: Save As writes a file; student names in the CSV match the names shown in the app.
-8. Classes: roster rows, sort dropdown, block sub-tabs; open a student; Style DNA strip; deep link to a flagged pair; Back.
-9. Student detail: Generate Similarity Report opens an HTML file in the browser.
-10. Unclassified files (if any): Assign dialog opens, validates, assigns.
-11. File > AI Settings: Test key works with a valid key; with no key, "Include AI summary" is disabled.
-12. Run analysis with AI **on** (needs a key): Overview batch patterns and per-pair narratives appear.
-13. File > Google Classroom: sign-in opens the browser; choose, sync, done states work.
-14. View > View Audit Log opens Notepad.
-15. Help > Documentation carousel: all slides, Next/Prev/Skip.
-16. Resize window and drag the sidebar edge: no stale paint.
+**A. Launch and data loading**
+
+1. Double-click `authorship.exe` in Explorer: splash shows the UL seal,
+   the main window opens on the welcome screen, and **no console window**
+   appears.
+2. Load `../stress_test_bscs7/Programming1` (has a `BSCS-7` subfolder):
+   the sidebar file count is non-zero.
+3. Load `../stress_test` (four block subfolders): loads; the first load
+   is slow (~40 s, known — see Known issues in
+   `docs/RELEASE_READINESS.md`), a second load of the same folder is fast.
+4. **Non-ASCII path:** copy `../stress_test_bscs7/Programming1` to a
+   folder named `Peña` and load it: same file count and, after analysis,
+   the same headline numbers as the original (2,186 pairs, 705 flagged).
+5. Import files: pick two `.c` files; they are copied in and a toast shows.
+
+**B. Analysis, AI off**
+
+6. Untick "Include AI summary", run: progress moves through the phases;
+   start a second run and Cancel works.
+7. Overview: headline, stat row and risk bar render; the AI box says the
+   summary was not requested (or, with no key set up, that AI is off).
+8. Classes: roster rows, sort dropdown, block sub-tabs; open a student:
+   Style DNA strip, submissions, flagged appearances, deep link to a pair,
+   Back.
+9. Flagged Pairs: list, severity filter, search, expand a pair, Copy
+   findings.
+10. View source from a flagged pair: single file opens; compare mode has
+    gold match and red style highlights; A/B tabs, Prev/Next, N/P/H keys,
+    Tab, mouse wheel and Up/Down/PgUp/PgDn/Home/End scrolling; close.
+11. View > View Student Profiles: the toast points to the Classes tab.
+
+**C. Outputs**
+
+12. Export CSV (Flagged Pairs toolbar): Save As anywhere writes the file;
+    student names match the app (e.g. `Carlos`, not `finalsexamCarlos`).
+13. Right after the export, Generate Similarity Report on a student: the
+    report opens in the browser and is saved in `Documents\CALSS Reports`
+    (proves the export didn't move the app's working folder).
+14. View > View Audit Log opens Notepad (`C:\ProgramData\CALSS\audit.log`).
+
+**D. AI on [you]**
+
+15. File > AI Settings: Test key succeeds with your key; with the key
+    removed, "Include AI summary" is disabled.
+16. Run with AI on: Overview shows cross-pair findings; expanded pairs show
+    AI notes. With more than 50 flagged pairs (Programming1 has 705):
+    pairs past #50 say "No AI note for this pair…", and the Overview
+    attribution line says "based on the 50 highest-scoring of N".
+
+**E. Google Classroom [you]**
+
+17. File > Google Classroom: the browser opens Google's consent page;
+    after sign-in the page says "Authentication Successful" and the sheet
+    moves to course selection; sync downloads into the chosen folder.
+18. Start sign-in and close the browser tab: within ~3 minutes CALSS
+    reports that sign-in timed out (it no longer waits forever).
+
+**F. Restart and other machines**
+
+19. Close and reopen CALSS: the AI key and Classroom sign-in are
+    remembered (Credential Manager); no first-run notices reappear.
+20. Help > Documentation carousel: all slides, Next/Prev/Skip.
+21. Resize the window and drag the sidebar edge: no stale paint.
+22. **[you]** Run `make_release.bat`, copy `release\CALSS\` to another
+    Windows 10/11 PC without MinGW (or another Windows user account), and
+    repeat items 1, 2, 6 and 13 there.
+
+**Done by Claude (2026-10-02, Phase 4):** item 1's "starts without MinGW
+and without a console" part was checked by launching the exe with `PATH`
+limited to System32 from an unrelated folder (it starts; before `-static`
+it failed with `0xC0000135`) and by checking its window list (no console
+host). The Peña case (item 4) was checked at the pipeline level, not in
+the GUI. Every other item above has **not** been run in the GUI.
