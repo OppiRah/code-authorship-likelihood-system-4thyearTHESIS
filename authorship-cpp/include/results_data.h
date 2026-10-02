@@ -141,6 +141,9 @@ struct AnalysisResults {
     // order) once populated -- see generatePairNarratives()'s contract.
     std::vector<AIPairNarrative> aiPairNarratives;
     AIBatchPatterns              aiBatchPatterns;
+    // How many flagged pairs (the highest-scoring first) were sent to
+    // Gemini; less than flaggedPairs.size() when GEMINI_MAX_PAIRS capped it.
+    int                          aiPairsSent;
 
     std::vector<StudentProfileSummary> profiles;
     std::vector<PairAnalysisDisplay>   flaggedPairs;

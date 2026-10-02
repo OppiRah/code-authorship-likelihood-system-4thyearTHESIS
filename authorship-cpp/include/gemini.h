@@ -23,6 +23,13 @@ bool gemini_saveKey(const std::string& key);
 bool gemini_removeKey();
 bool gemini_testKey(const std::string& apiKey, std::string& error);
 
+// At most this many flagged pairs (the highest-scoring ones) are sent
+// to Gemini per run. A single section can flag hundreds of pairs, and
+// one prompt covering all of them is too large to answer reliably
+// (Tier 1 must return exactly one narrative per pair). Applied by
+// runAnalysisPipeline(); pairs past the cap get a "not covered" note.
+constexpr size_t GEMINI_MAX_PAIRS = 50;
+
 // ── Tiered AI outputs (restructure) ────────────────────────────
 // Input type is PairAnalysisDisplay, not PairResult — confirmed by the
 // investigation (per-feature deviation data does not exist on PairResult;

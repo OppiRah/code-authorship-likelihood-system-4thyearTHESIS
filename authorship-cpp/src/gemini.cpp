@@ -212,6 +212,11 @@ static std::string callGeminiAPI(const std::string& apiKey,
         WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) { error = "Failed to open HTTP session"; return ""; }
 
+    // Explicit timeouts (ms): resolve, connect, send, receive. WinHTTP's
+    // defaults are an unlimited DNS wait and a 30 s receive, which a
+    // full batch of pair narratives can exceed while Gemini generates.
+    WinHttpSetTimeouts(hSession, 15000, 15000, 30000, 120000);
+
     // Connect to host
     HINTERNET hConnect = WinHttpConnect(
         hSession,

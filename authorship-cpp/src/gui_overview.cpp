@@ -862,8 +862,15 @@ int drawAISummary(HDC hdc, int x, int y, int width) {
     SelectObject(hdc, g_hFontMonoSm);
     SetTextColor(hdc, GRAY_500);
     RECT sigRect = {itemX, sigY, x + width - S(30), sigY + S(18)};
-    DrawTextW(hdc, L"Gemini 2.5 Flash Lite  \u00B7  CALSS AI Instructor",
-              -1, &sigRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    std::wstring sig = L"Gemini 2.5 Flash Lite  \u00B7  CALSS AI Instructor";
+    // Say so when the findings cover only the top of the flagged list
+    // (GEMINI_MAX_PAIRS cap), so they aren't read as covering every pair.
+    if (r.aiPairsSent > 0 && r.aiPairsSent < (int)r.flaggedPairs.size())
+        sig += L"  \u00B7  based on the " + std::to_wstring(r.aiPairsSent) +
+               L" highest-scoring of " + std::to_wstring(r.flaggedPairs.size()) +
+               L" flagged pairs";
+    DrawTextW(hdc, sig.c_str(), -1, &sigRect,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
     RECT rule = {ruleX, y, ruleX + S(3), sigY + S(18)};
     HBRUSH rb = CreateSolidBrush(GOLD_500);

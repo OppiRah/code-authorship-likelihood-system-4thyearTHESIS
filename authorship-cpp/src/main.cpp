@@ -1391,10 +1391,29 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
     // useAI toggle; no separate mid-flow prompt.
     if (useAI && !flagged.empty()) {
         reportProgress(AnalysisPhase::GeneratingSummary, 0, 1);
-        g_analysisResults.aiPairNarratives =
-            generatePairNarratives(g_analysisResults.flaggedPairs);
-        g_analysisResults.aiBatchPatterns =
-            generateCrossPairPatterns(g_analysisResults.flaggedPairs);
+        // Only the highest-scoring GEMINI_MAX_PAIRS go to Gemini.
+        // flaggedPairs is already ordered by combined score, highest
+        // first, so that is its first N entries — and their indices (and
+        // the "Pair N" numbers the prompts use) stay the same.
+        const auto& all = g_analysisResults.flaggedPairs;
+        size_t sent = std::min(all.size(), GEMINI_MAX_PAIRS);
+        std::vector<PairAnalysisDisplay> aiPairs(all.begin(), all.begin() + sent);
+        g_analysisResults.aiPairsSent = (int)sent;
+
+        g_analysisResults.aiPairNarratives = generatePairNarratives(aiPairs);
+        // Keep the vector parallel to flaggedPairs: pairs past the cap
+        // get a skipped entry whose reason the pair card shows.
+        for (size_t i = sent; i < all.size(); ++i) {
+            AIPairNarrative n;
+            n.pairId  = all[i].studentA.studentName + " vs " +
+                        all[i].studentB.studentName;
+            n.success = false;
+            n.skipped = true;
+            n.error   = "No AI note for this pair: AI notes cover the " +
+                        std::to_string(sent) + " highest-scoring flagged pairs.";
+            g_analysisResults.aiPairNarratives.push_back(n);
+        }
+        g_analysisResults.aiBatchPatterns = generateCrossPairPatterns(aiPairs);
         reportProgress(AnalysisPhase::GeneratingSummary, 1, 1);
     } else {
         g_analysisResults.aiBatchPatterns.skipped = true;
