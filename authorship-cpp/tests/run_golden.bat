@@ -36,7 +36,7 @@ g++ -std=c++17 -O2 -static-libgcc -static-libstdc++ -I include ^
     src/gui.cpp src/gui_sync_sheet.cpp src/gui_assign_dialog.cpp ^
     src/gui_help_carousel.cpp src/gui_welcome.cpp src/gui_overview.cpp ^
     src/gui_flagged.cpp src/gui_students.cpp src/gui_ai_settings.cpp ^
-    src/secret_store.cpp ^
+    src/secret_store.cpp src/app_paths.cpp ^
     -lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus -ladvapi32 ^
     -o "%WORK%\golden_harness.exe" || goto :buildfail
 

@@ -13,6 +13,7 @@
 
 #include "../include/google_classroom.h"
 #include "../include/secret_store.h"
+#include "../include/app_paths.h"
 
 #include <string>
 #include <vector>
@@ -153,7 +154,8 @@ void gc_signOut() {
     g_token = {};
     g_tokenLoaded = false;
     secretDelete(SECRET_GC_TOKEN);
-    DeleteFileA(GC_TOKEN_FILE);  // any stray legacy plaintext copy
+    // any stray legacy plaintext copy
+    DeleteFileA((appExeDirA() + "\\" GC_TOKEN_FILE).c_str());
 }
 
 // ── WinHTTP HTTPS helper ──────────────────────────────────────
@@ -310,7 +312,7 @@ bool gc_loadCredentials(const std::string& jsonPath, GCCredentials& out) {
 // calss_gc_embedded_credentials.example.json documents its shape.
 // ─────────────────────────────────────────────────────────────
 static bool loadEmbeddedDefaults(GCCredentials& out) {
-    std::ifstream f(GC_EMBEDDED_CREDS_FILE);
+    std::ifstream f(appExeDirA() + "\\" GC_EMBEDDED_CREDS_FILE);
     if (!f.is_open()) return false;
 
     std::string json((std::istreambuf_iterator<char>(f)),
@@ -322,8 +324,16 @@ static bool loadEmbeddedDefaults(GCCredentials& out) {
     return !out.clientId.empty() && !out.clientSecret.empty();
 }
 
+// The settings file lives in %LOCALAPPDATA%\CALSS (per user, always
+// writable). Earlier builds wrote it to the working folder, normally
+// the exe's; gc_loadSettings() still reads such a copy if no
+// per-user file exists yet.
+static std::string settingsPath() {
+    return appDataDirA() + "\\" GC_SETTINGS_FILE;
+}
+
 bool gc_saveSettings(const GCCredentials& creds) {
-    std::ofstream f(GC_SETTINGS_FILE);
+    std::ofstream f(settingsPath());
     if (!f.is_open()) return false;
     f << "{\n"
       << "  \"client_id\": \""     << creds.clientId     << "\",\n"
@@ -335,7 +345,9 @@ bool gc_saveSettings(const GCCredentials& creds) {
 }
 
 bool gc_loadSettings(GCCredentials& creds) {
-    std::ifstream f(GC_SETTINGS_FILE);
+    std::ifstream f(settingsPath());
+    if (!f.is_open())
+        f.open(appExeDirA() + "\\" GC_SETTINGS_FILE); // legacy location
 
     if (!f.is_open()) {
         // No local override saved yet — fall back to the embedded

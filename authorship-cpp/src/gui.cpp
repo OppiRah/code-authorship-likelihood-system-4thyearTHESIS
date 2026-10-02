@@ -4,6 +4,7 @@
 // Stage 4: Wired analysis pipeline + UL color palette
 // ─────────────────────────────────────────────────────────────
 #include "../include/gui_common.h"
+#include "../include/app_paths.h"
 #include <tuple>
 
 #ifdef _WIN32
@@ -27,7 +28,7 @@ static Image* getULLogo() {
     static bool s_logoTried = false;
     if (!s_logoTried) {
         s_logoTried = true;
-        s_logoImg = new Image(L"ulccslogo.png");
+        s_logoImg = new Image((appExeDirW() + L"\\ulccslogo.png").c_str());
         if (s_logoImg->GetLastStatus() != Ok) {
             delete s_logoImg;
             s_logoImg = nullptr;
@@ -871,7 +872,8 @@ static bool pickFiles(HWND hwndParent, std::vector<std::wstring>& outFiles) {
     ofn.nMaxFile    = sizeof(buffer) / sizeof(wchar_t);
     ofn.lpstrTitle  = L"Select .c files to import";
     ofn.Flags       = OFN_EXPLORER | OFN_ALLOWMULTISELECT |
-                      OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+                      OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST |
+                      OFN_NOCHANGEDIR;
 
     if (!GetOpenFileNameW(&ofn)) return false;
 
@@ -3755,7 +3757,7 @@ bool exportPairsToCsv(HWND hwnd) {
     ofn.lpstrFile   = filePath;
     ofn.nMaxFile    = MAX_PATH;
     ofn.lpstrDefExt = "csv";
-    ofn.Flags       = OFN_OVERWRITEPROMPT;
+    ofn.Flags       = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
     if (!GetSaveFileNameA(&ofn)) return false;
 
     std::ofstream f(filePath);

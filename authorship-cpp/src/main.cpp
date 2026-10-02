@@ -22,6 +22,7 @@
 #include "similarity.h"
 #include "gemini.h"
 #include "gui.h"
+#include "app_paths.h"
 
 #ifdef _WIN32
   #include <windows.h>
@@ -631,7 +632,10 @@ std::string generateStudentSimilarityReport(const std::string& studentName)
 
     // Determine output path
     std::string safeName = sanitizeFilename(studentName);
-    std::string outputPath = "similarity_report_" + safeName + ".html";
+    // Documents\CALSS Reports, where the professor can find it again
+    // (not the working folder, which file dialogs can change).
+    std::string outputPath = appReportsDirA() + "\\similarity_report_" +
+                             safeName + ".html";
 
     std::ofstream out(outputPath);
     if (!out.is_open()) return "";

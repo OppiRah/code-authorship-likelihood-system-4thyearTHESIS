@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────
 
 #include "../include/gui_common.h"
+#include "../include/app_paths.h"
 
 #ifdef _WIN32
 
@@ -28,7 +29,7 @@ static Image* getULLoadingLogo() {
     static bool s_logoTried = false;
     if (!s_logoTried) {
         s_logoTried = true;
-        s_logoImg = new Image(L"ulcclogoloadingscreen.png");
+        s_logoImg = new Image((appExeDirW() + L"\\ulcclogoloadingscreen.png").c_str());
         if (s_logoImg->GetLastStatus() != Ok) {
             delete s_logoImg;
             s_logoImg = nullptr;
