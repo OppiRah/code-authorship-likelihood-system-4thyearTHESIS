@@ -11,6 +11,7 @@
 // ─────────────────────────────────────────────────────────────
 
 #include "../include/gui_common.h"
+#include "../include/app_paths.h"
 
 #ifdef _WIN32
 
@@ -253,7 +254,7 @@ static bool applyFileAssignment(const std::string& fullPath,
     std::string newPath = folder + "\\" + categoryTag + "__" +
         safeName + "_ASGN" + fingerprint + ".c";
 
-    return MoveFileA(fullPath.c_str(), newPath.c_str()) != 0;
+    return MoveFileW(widenUtf8(fullPath).c_str(), widenUtf8(newPath).c_str()) != 0;
 }
 
 // Deletes a manually-imported / unclassified file from disk. Scoped
@@ -261,7 +262,7 @@ static bool applyFileAssignment(const std::string& fullPath,
 // Classroom-synced manifest entry are never offered a delete option
 // through the app.
 static bool deleteUnclassifiedFile(const std::string& fullPath) {
-    return DeleteFileA(fullPath.c_str()) != 0;
+    return DeleteFileW(widenUtf8(fullPath).c_str()) != 0;
 }
 
 // Shared by the mouse click handler (WM_LBUTTONDOWN) and

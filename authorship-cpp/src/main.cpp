@@ -283,7 +283,7 @@ struct LanguageCheck {
 static LanguageCheck checkLanguage(const std::string& filepath) {
     LanguageCheck result{true, ""};
 
-    std::ifstream f(filepath);
+    std::ifstream f(pathFromUtf8(filepath));
     if (!f.is_open()) return result; // can't read it — don't block on this
 
     std::string content((std::istreambuf_iterator<char>(f)),
@@ -357,7 +357,7 @@ static void autoTagManualBlock(const std::string& rootFolder,
     // synced via Classroom directly into this subfolder, or analysis
     // already ran on this folder before) — avoids duplicate/stale lines.
     {
-        std::ifstream check(manifestPath);
+        std::ifstream check(pathFromUtf8(manifestPath));
         if (check.is_open()) {
             std::string line;
             std::string searchKey = "\"file\":\"" + bareFilename + "\"";
@@ -367,13 +367,16 @@ static void autoTagManualBlock(const std::string& rootFolder,
         }
     }
 
-    std::ofstream f(manifestPath, std::ios::app);
+    std::ofstream f(pathFromUtf8(manifestPath), std::ios::app);
     if (!f.is_open()) return;
     f << "{\"file\":\"" << bareFilename << "\","
       << "\"title\":\"Manually Imported\","
       << "\"block\":\"" << blockName << "\"}\n";
 }
 
+// Keys (file names) and paths are UTF-8; the folder is enumerated
+// with the wide API so non-ASCII names (e.g. "Peña") load (see
+// app_paths.h).
 static std::map<std::string,std::string> loadFolder(
     const std::string& folder)
 {
@@ -383,15 +386,15 @@ static std::map<std::string,std::string> loadFolder(
     // existing behavior — Classroom-synced files land here, tagged
     // with their block via the manifest (not via physical folders).
     {
-        WIN32_FIND_DATAA fd;
-        std::string pattern = folder + "\\*.c";
-        HANDLE hFind = FindFirstFileA(pattern.c_str(), &fd);
+        WIN32_FIND_DATAW fd;
+        std::wstring pattern = widenUtf8(folder + "\\*.c");
+        HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
         if (hFind != INVALID_HANDLE_VALUE) {
             do {
-                std::string fname = fd.cFileName;
+                std::string fname = utf8FromWide(fd.cFileName);
                 std::string key   = fname.substr(0, fname.rfind('.'));
                 files[key] = folder + "\\" + fname;
-            } while (FindNextFileA(hFind, &fd));
+            } while (FindNextFileW(hFind, &fd));
             FindClose(hFind);
         }
     }
@@ -411,30 +414,30 @@ static std::map<std::string,std::string> loadFolder(
     // manually-assigned filenames, which is already good practice and
     // avoids the collision entirely.
     {
-        WIN32_FIND_DATAA fd;
-        std::string dirPattern = folder + "\\*";
-        HANDLE hFind = FindFirstFileA(dirPattern.c_str(), &fd);
+        WIN32_FIND_DATAW fd;
+        std::wstring dirPattern = widenUtf8(folder + "\\*");
+        HANDLE hFind = FindFirstFileW(dirPattern.c_str(), &fd);
         if (hFind != INVALID_HANDLE_VALUE) {
             do {
                 if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
-                std::string subName = fd.cFileName;
+                std::string subName = utf8FromWide(fd.cFileName);
                 if (subName == "." || subName == "..") continue;
 
                 std::string subFolder = folder + "\\" + subName;
                 std::string subPattern = subFolder + "\\*.c";
 
-                WIN32_FIND_DATAA fd2;
-                HANDLE hFind2 = FindFirstFileA(subPattern.c_str(), &fd2);
+                WIN32_FIND_DATAW fd2;
+                HANDLE hFind2 = FindFirstFileW(widenUtf8(subPattern).c_str(), &fd2);
                 if (hFind2 != INVALID_HANDLE_VALUE) {
                     do {
-                        std::string fname = fd2.cFileName;
+                        std::string fname = utf8FromWide(fd2.cFileName);
                         std::string key   = fname.substr(0, fname.rfind('.'));
                         files[key] = subFolder + "\\" + fname;
                         autoTagManualBlock(folder, fname, subName);
-                    } while (FindNextFileA(hFind2, &fd2));
+                    } while (FindNextFileW(hFind2, &fd2));
                     FindClose(hFind2);
                 }
-            } while (FindNextFileA(hFind, &fd));
+            } while (FindNextFileW(hFind, &fd));
             FindClose(hFind);
         }
     }
@@ -634,10 +637,10 @@ std::string generateStudentSimilarityReport(const std::string& studentName)
     std::string safeName = sanitizeFilename(studentName);
     // Documents\CALSS Reports, where the professor can find it again
     // (not the working folder, which file dialogs can change).
-    std::string outputPath = appReportsDirA() + "\\similarity_report_" +
+    std::string outputPath = appReportsDirU8() + "\\similarity_report_" +
                              safeName + ".html";
 
-    std::ofstream out(outputPath);
+    std::ofstream out(pathFromUtf8(outputPath));
     if (!out.is_open()) return "";
 
     // Get current date string

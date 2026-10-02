@@ -17,6 +17,7 @@
 // ─────────────────────────────────────────────────────────────
 
 #include "../include/gui_common.h"
+#include "../include/app_paths.h"
 
 #ifdef _WIN32
 
@@ -160,7 +161,7 @@ static void syncFetchThread(HWND sheet) {
 static void syncRunThread(HWND sheet, std::vector<SyncBlockNode>* blocks,
                             std::wstring destFolder) {
     std::string outputFolder = toNarrowGC(destFolder);
-    CreateDirectoryA(outputFolder.c_str(), nullptr);
+    CreateDirectoryW(destFolder.c_str(), nullptr);
 
     int totalFilesDownloaded = 0, totalAssignmentsSucceeded = 0, totalAssignmentsPlanned = 0;
     std::vector<std::string> assignmentsWithNoSubmissions, assignmentsFailed, blocksSynced;
@@ -192,7 +193,7 @@ static void syncRunThread(HWND sheet, std::vector<SyncBlockNode>* blocks,
             else if (c == ' ') sanitizedBlockName += '_';
         }
         if (!sanitizedBlockName.empty())
-            CreateDirectoryA((outputFolder + "\\" + sanitizedBlockName).c_str(), nullptr);
+            CreateDirectoryW(widenUtf8(outputFolder + "\\" + sanitizedBlockName).c_str(), nullptr);
 
         for (auto* row : checkedRows) {
             g_syncCurrentLabel = L"[" + s2w(blockLabel) + L"] " + s2w(row->assignment.title);
@@ -523,10 +524,10 @@ static void syncChooseConfirm(HWND hwnd) {
     if (totalChecked == 0) return;
 
     if (g_state.dataFolder.empty()) {
-        char docsPath[MAX_PATH] = {};
-        if (SHGetFolderPathA(nullptr, CSIDL_PERSONAL, nullptr,
+        wchar_t docsPath[MAX_PATH] = {};
+        if (SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr,
                               SHGFP_TYPE_CURRENT, docsPath) == S_OK)
-            g_state.dataFolder = s2w(std::string(docsPath) + "\\CALSS_Classroom_Sync");
+            g_state.dataFolder = std::wstring(docsPath) + L"\\CALSS_Classroom_Sync";
         else
             g_state.dataFolder = L"CALSS_Classroom_Sync";
     }

@@ -155,7 +155,7 @@ void gc_signOut() {
     g_tokenLoaded = false;
     secretDelete(SECRET_GC_TOKEN);
     // any stray legacy plaintext copy
-    DeleteFileA((appExeDirA() + "\\" GC_TOKEN_FILE).c_str());
+    DeleteFileW(widenUtf8(appExeDirU8() + "\\" GC_TOKEN_FILE).c_str());
 }
 
 // ── WinHTTP HTTPS helper ──────────────────────────────────────
@@ -267,7 +267,7 @@ static HttpResponse httpGet(const std::string& host,
 
 // ── Credentials JSON parsing ──────────────────────────────────
 bool gc_loadCredentials(const std::string& jsonPath, GCCredentials& out) {
-    std::ifstream f(jsonPath);
+    std::ifstream f(pathFromUtf8(jsonPath));
     if (!f.is_open()) return false;
     std::string json((std::istreambuf_iterator<char>(f)),
                       std::istreambuf_iterator<char>());
@@ -312,7 +312,7 @@ bool gc_loadCredentials(const std::string& jsonPath, GCCredentials& out) {
 // calss_gc_embedded_credentials.example.json documents its shape.
 // ─────────────────────────────────────────────────────────────
 static bool loadEmbeddedDefaults(GCCredentials& out) {
-    std::ifstream f(appExeDirA() + "\\" GC_EMBEDDED_CREDS_FILE);
+    std::ifstream f(pathFromUtf8(appExeDirU8() + "\\" GC_EMBEDDED_CREDS_FILE));
     if (!f.is_open()) return false;
 
     std::string json((std::istreambuf_iterator<char>(f)),
@@ -329,11 +329,11 @@ static bool loadEmbeddedDefaults(GCCredentials& out) {
 // the exe's; gc_loadSettings() still reads such a copy if no
 // per-user file exists yet.
 static std::string settingsPath() {
-    return appDataDirA() + "\\" GC_SETTINGS_FILE;
+    return appDataDirU8() + "\\" GC_SETTINGS_FILE;
 }
 
 bool gc_saveSettings(const GCCredentials& creds) {
-    std::ofstream f(settingsPath());
+    std::ofstream f(pathFromUtf8(settingsPath()));
     if (!f.is_open()) return false;
     f << "{\n"
       << "  \"client_id\": \""     << creds.clientId     << "\",\n"
@@ -345,9 +345,9 @@ bool gc_saveSettings(const GCCredentials& creds) {
 }
 
 bool gc_loadSettings(GCCredentials& creds) {
-    std::ifstream f(settingsPath());
-    if (!f.is_open())
-        f.open(appExeDirA() + "\\" GC_SETTINGS_FILE); // legacy location
+    std::ifstream f(pathFromUtf8(settingsPath()));
+    if (!f.is_open())                                   // legacy location
+        f.open(pathFromUtf8(appExeDirU8() + "\\" GC_SETTINGS_FILE));
 
     if (!f.is_open()) {
         // No local override saved yet — fall back to the embedded
@@ -710,7 +710,7 @@ static bool downloadDriveFile(const std::string& token,
         "/drive/v3/files/" + fileId + "?alt=media", token, true);
     if (!res.success || res.body.empty()) return false;
 
-    std::ofstream out(destPath, std::ios::binary);
+    std::ofstream out(pathFromUtf8(destPath), std::ios::binary);
     if (!out.is_open()) return false;
     out.write(res.body.data(), res.body.size());
     return true;
@@ -728,7 +728,8 @@ static void appendManifestEntry(const std::string& outputFolder,
                                   const std::string& filename,
                                   const std::string& assignmentTitle,
                                   const std::string& blockName) {
-    std::ofstream f(outputFolder + "\\calss_sync_manifest.jsonl", std::ios::app);
+    std::ofstream f(pathFromUtf8(outputFolder + "\\calss_sync_manifest.jsonl"),
+                    std::ios::app);
     if (!f.is_open()) return;
     auto sanitize = [](const std::string& s) {
         std::string safe;
@@ -742,7 +743,7 @@ static void appendManifestEntry(const std::string& outputFolder,
 
 std::map<std::string,SyncManifestEntry> gc_loadSyncManifest(const std::string& folder) {
     std::map<std::string,SyncManifestEntry> manifest;
-    std::ifstream f(folder + "\\calss_sync_manifest.jsonl");
+    std::ifstream f(pathFromUtf8(folder + "\\calss_sync_manifest.jsonl"));
     if (!f.is_open()) return manifest;
 
     auto extractField = [](const std::string& line, const std::string& key) -> std::string {
@@ -778,7 +779,8 @@ GCResult gc_downloadSubmissions(HWND parent,
     std::string token = getAccessToken(creds);
     if (token.empty()) { result.error = "Not authenticated"; return result; }
 
-    std::filesystem::create_directories(outputFolder);
+    std::error_code mkdirErr; // UTF-8 folder; failure surfaces at download
+    std::filesystem::create_directories(pathFromUtf8(outputFolder), mkdirErr);
 
     // ── Priority Signal 1: Classroom assignment title ─────────
     // If the instructor named the assignment with a period keyword

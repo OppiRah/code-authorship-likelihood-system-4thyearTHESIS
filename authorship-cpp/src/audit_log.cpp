@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────
 
 #include "../include/audit_log.h"
+#include "../include/app_paths.h"
 
 #include <fstream>
 #include <sstream>
@@ -119,7 +120,7 @@ std::string audit_sha256String(const std::string& content) {
 }
 
 std::string audit_sha256File(const std::string& filePath) {
-    std::ifstream f(filePath, std::ios::binary);
+    std::ifstream f(pathFromUtf8(filePath), std::ios::binary);
     if (!f.is_open()) return "";
     std::string content((std::istreambuf_iterator<char>(f)),
                          std::istreambuf_iterator<char>());
@@ -136,23 +137,24 @@ static std::string timestamp() {
 
 // Resolve %PROGRAMDATA%\CALSS\audit.log, creating the directory if needed.
 // Falls back to local folder if ProgramData is unavailable (rare).
+// Returned as UTF-8 (see app_paths.h).
 static std::string resolveAuditLogPath() {
-    char programData[MAX_PATH] = {};
-    if (SHGetFolderPathA(nullptr, CSIDL_COMMON_APPDATA, nullptr,
+    wchar_t programData[MAX_PATH] = {};
+    if (SHGetFolderPathW(nullptr, CSIDL_COMMON_APPDATA, nullptr,
                           SHGFP_TYPE_CURRENT, programData) != S_OK) {
         return AUDIT_LOG_FILE; // fallback: local folder
     }
 
-    std::string dir = std::string(programData) + "\\CALSS";
-    CreateDirectoryA(dir.c_str(), nullptr); // no-op if it already exists
+    std::wstring dir = std::wstring(programData) + L"\\CALSS";
+    CreateDirectoryW(dir.c_str(), nullptr); // no-op if it already exists
 
-    return dir + "\\audit.log";
+    return utf8FromWide(dir + L"\\audit.log");
 }
 
 void audit_log(const std::string& category, const std::string& details) {
     static std::string logPath = resolveAuditLogPath();
 
-    std::ofstream f(logPath, std::ios::app);
+    std::ofstream f(pathFromUtf8(logPath), std::ios::app);
     if (!f.is_open()) return;
 
     f << "[" << timestamp() << "] " << category << "\n";

@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────
 
 #include "../include/features.h"
+#include "../include/app_paths.h"
 
 #include <fstream>
 #include <sstream>
@@ -65,7 +66,7 @@ static const std::unordered_set<std::string> C_KW = {
 // ═════════════════════════════════════════════════════════════
 
 static bool readFile(const std::string& path, std::string& out) {
-    std::ifstream f(path);
+    std::ifstream f(pathFromUtf8(path)); // UTF-8 path, see app_paths.h
     if (!f.is_open()) return false;
     std::ostringstream ss;
     ss << f.rdbuf();

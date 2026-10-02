@@ -165,7 +165,7 @@ static void loadSourceViewSide(const std::wstring& label, const std::wstring& su
     side = SourceViewSide{};
     side.title = label;
 
-    std::ifstream f(path, std::ios::binary);
+    std::ifstream f(pathFromUtf8(path), std::ios::binary);
     if (!f) {
         side.missing = true;
         side.subtitle =
@@ -3226,7 +3226,7 @@ void generateAndOpenStudentReport() {
             "Student: " + name + "\n" +
             "Report file: " + path + "\n" +
             "Report: " + hash);
-        ShellExecuteA(nullptr, "open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        ShellExecuteW(nullptr, L"open", widenUtf8(path).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     } else {
         showToast(L"Failed to generate the similarity report. "
                    L"Please make sure the analysis has been run.", TOAST_WARNING);
@@ -3749,18 +3749,18 @@ std::wstring periodDisplayLabelGC(const std::string& period) {
 // (a proper paginated layout engine) and is not part of this pass;
 // the button is honest about that rather than faking it.
 bool exportPairsToCsv(HWND hwnd) {
-    OPENFILENAMEA ofn = {};
-    char filePath[MAX_PATH] = "calss_flagged_pairs.csv";
+    OPENFILENAMEW ofn = {};
+    wchar_t filePath[MAX_PATH] = L"calss_flagged_pairs.csv";
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner   = hwnd;
-    ofn.lpstrFilter = "CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0";
+    ofn.lpstrFilter = L"CSV files (*.csv)\0*.csv\0All files (*.*)\0*.*\0";
     ofn.lpstrFile   = filePath;
     ofn.nMaxFile    = MAX_PATH;
-    ofn.lpstrDefExt = "csv";
+    ofn.lpstrDefExt = L"csv";
     ofn.Flags       = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
-    if (!GetSaveFileNameA(&ofn)) return false;
+    if (!GetSaveFileNameW(&ofn)) return false;
 
-    std::ofstream f(filePath);
+    std::ofstream f{std::filesystem::path(filePath)};
     if (!f.is_open()) return false;
 
     f << "Student A,Student B,Combined Score,Token Score,Style Score,"
@@ -5010,7 +5010,7 @@ static void handleMenuCommand(HWND hwnd, int commandId) {
 
         case ID_VIEW_AUDIT_LOG: {
             std::string logPath = audit_getLogPath();
-            DWORD attr = GetFileAttributesA(logPath.c_str());
+            DWORD attr = GetFileAttributesW(widenUtf8(logPath).c_str());
             if (attr == INVALID_FILE_ATTRIBUTES) {
                 showAppModal(L"Audit log",
                     L"No audit log entries yet.\n\n"
@@ -5021,8 +5021,8 @@ static void handleMenuCommand(HWND hwnd, int commandId) {
                 break;
             }
             // Open in Notepad
-            ShellExecuteA(nullptr, "open", "notepad.exe",
-                          logPath.c_str(), nullptr, SW_SHOWNORMAL);
+            ShellExecuteW(nullptr, L"open", L"notepad.exe",
+                          widenUtf8(logPath).c_str(), nullptr, SW_SHOWNORMAL);
             break;
         }
 
