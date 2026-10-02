@@ -18,6 +18,9 @@ authorship-cpp/report.html
 authorship-cpp/similarity_report_*.html
 authorship-cpp/calss_audit.log
 authorship-cpp/profile.log
+authorship-cpp/*.log
+# screenshot tool's --dry-run capture (tools/capture_help_screenshots.ps1)
+authorship-cpp/assets/help/_dryrun_test.png
 
 # ── Student submission data (not committed — privacy) ───────────
 authorship-cpp/data/
