@@ -1,6 +1,6 @@
 @echo off
 g++ -std=c++17 ^
-    -static-libgcc -static-libstdc++ ^
+    -static -static-libgcc -static-libstdc++ ^
     -O2 ^
     src/main.cpp ^
     src/analysis_pipeline.cpp ^

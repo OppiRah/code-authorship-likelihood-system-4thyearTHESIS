@@ -28,7 +28,7 @@ mkdir "%WORK%" || exit /b 1
 echo Building harness...
 REM Same compiler flags as compile.bat. Only the pipeline and what it
 REM depends on are linked: no GUI, no main.cpp.
-g++ -std=c++17 -O2 -static-libgcc -static-libstdc++ -I include ^
+g++ -std=c++17 -O2 -static -static-libgcc -static-libstdc++ -I include ^
     tests/golden_harness.cpp src/analysis_pipeline.cpp ^
     src/tokenizer.cpp src/features.cpp src/knn_model.cpp src/similarity.cpp ^
     src/gemini.cpp src/secret_store.cpp src/app_paths.cpp src/audit_log.cpp ^

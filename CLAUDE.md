@@ -281,17 +281,23 @@ the golden check byte-identically.
   per run (four-block dataset ~28 s → ~7.4 s; one section ~1.5 s →
   ~0.55 s).
 - **Open, not done:** `autoTagManualBlock` re-reads the whole manifest
-  per file (first load of the four-block dataset ~41 s); View > "View
-  Student Profiles" still shows a stale placeholder message. Thesis
+  per file (first load of the four-block dataset ~41 s) — known
+  performance debt, deliberately not fixed in Phase 4. Thesis
   questions T-1 (LCS 500-token cap vs. full-length denominator) and T-2
   (flag rate vs. `manifest.csv` answer keys) are team decisions.
 
 ## Build
 
 ```
-x86_64-w64-mingw32-g++ -std=c++17 -O2 -static-libgcc -static-libstdc++ ...
+x86_64-w64-mingw32-g++ -std=c++17 -O2 -static -static-libgcc -static-libstdc++ ...
 -lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus -ladvapi32
 ```
+
+`-static` (added 2026-10-02, Phase 4) is required: without it the exe
+imports MinGW's `libwinpthread-1.dll` (pulled in by `std::thread`) and
+fails to start on a PC without MinGW (`0xC0000135`). Check with
+`objdump -p authorship.exe | findstr "DLL Name"` — only Windows system
+DLLs and `api-ms-win-crt-*` (UCRT, built into Windows 10/11) should appear.
 
 `compile.bat` uses an explicit file list — every new translation unit must
 be added manually. (2026-10-02: added `src/gui_ai_settings.cpp`,
