@@ -440,9 +440,42 @@ bool gc_refreshIfNeeded(const GCCredentials& creds) {
 }
 
 // ── OAuth browser flow with localhost listener ────────────────
-// Listens on port 8080 for Google's redirect and extracts the code
+// Listens on 127.0.0.1:8080 for Google's redirect and extracts the code.
 
-static std::string listenForCode() {
+// Random value sent as the OAuth `state` parameter and checked on the
+// redirect, so a request to the listener that didn't come from this
+// sign-in (e.g. a link another site or program sends the browser to) is
+// rejected (RFC 6749 §10.12). Empty if no randomness was available.
+static std::string makeOAuthState() {
+    unsigned char bytes[16];
+    HCRYPTPROV prov = 0;
+    if (!CryptAcquireContextW(&prov, nullptr, nullptr, PROV_RSA_FULL,
+                              CRYPT_VERIFYCONTEXT | CRYPT_SILENT))
+        return "";
+    BOOL ok = CryptGenRandom(prov, sizeof(bytes), bytes);
+    CryptReleaseContext(prov, 0);
+    if (!ok) return "";
+    static const char* hex = "0123456789abcdef";
+    std::string s;
+    for (unsigned char b : bytes) { s += hex[b >> 4]; s += hex[b & 15]; }
+    return s;
+}
+
+// Value of query parameter `name` in the request line of an HTTP
+// request ("GET /?state=..&code=.. HTTP/1.1"), still URL-encoded.
+static std::string queryParam(const std::string& request, const std::string& name) {
+    std::string line = request.substr(0, request.find("\r\n"));
+    for (const char* sep : {"?", "&"}) {
+        size_t pos = line.find(sep + name + "=");
+        if (pos == std::string::npos) continue;
+        pos += 1 + name.size() + 1;
+        size_t end = line.find_first_of("& ", pos);
+        return line.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+    }
+    return "";
+}
+
+static std::string listenForCode(const std::string& expectedState) {
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
 
@@ -453,19 +486,33 @@ static std::string listenForCode() {
     int opt = 1;
     setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt));
 
-    // Set timeout: 3 minutes
+    // Receive timeout for the accepted connection (inherited from the
+    // listening socket): 3 minutes.
     DWORD timeout = 180000;
     setsockopt(srv, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
 
+    // Loopback only: the redirect comes from the browser on this PC, so
+    // nothing else on the network needs to reach this port.
     sockaddr_in addr = {};
     addr.sin_family      = AF_INET;
     addr.sin_port        = htons(GC_AUTH_PORT);
-    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
     if (bind(srv, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
         closesocket(srv); WSACleanup(); return "";
     }
     listen(srv, 1);
+
+    // SO_RCVTIMEO doesn't apply to accept(), so wait with select(): an
+    // abandoned sign-in now gives up after 3 minutes instead of holding
+    // this thread and the port forever.
+    fd_set readable;
+    FD_ZERO(&readable);
+    FD_SET(srv, &readable);
+    timeval wait = {180, 0};
+    if (select(0, &readable, nullptr, nullptr, &wait) <= 0) {
+        closesocket(srv); WSACleanup(); return "";
+    }
 
     sockaddr_in clientAddr = {};
     int clientAddrLen = sizeof(clientAddr);
@@ -483,10 +530,15 @@ static std::string listenForCode() {
         request = buf;
     }
 
-    // Send a nice response page
-    const char* htmlResponse =
+    // Accept the code only if `state` matches what this sign-in sent.
+    std::string code = queryParam(request, "code");
+    bool stateOk = !expectedState.empty() &&
+                   queryParam(request, "state") == expectedState;
+    if (!stateOk) code.clear();
+
+    const char* pageHead =
         "HTTP/1.1 200 OK\r\n"
-        "Content-Type: text/html\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
         "Connection: close\r\n"
         "\r\n"
         "<!DOCTYPE html><html><head>"
@@ -497,32 +549,20 @@ static std::string listenForCode() {
         "h1{color:#D4AF37;font-size:24px;}"
         "p{color:#9A9AA0;}"
         "</style></head><body>"
-        "<div class='box'>"
-        "<h1>CALSS \u2014 Authentication Successful</h1>"
-        "<p>You have successfully connected Google Classroom.</p>"
-        "<p>You may now close this tab and return to the application.</p>"
-        "</div></body></html>";
+        "<div class='box'>";
+    const char* pageBody = !code.empty()
+        ? "<h1>CALSS — Authentication Successful</h1>"
+          "<p>You have successfully connected Google Classroom.</p>"
+          "<p>You may now close this tab and return to the application.</p>"
+        : "<h1>CALSS — Sign-in Not Completed</h1>"
+          "<p>Google Classroom was not connected.</p>"
+          "<p>Close this tab, return to CALSS and try again.</p>";
+    std::string page = std::string(pageHead) + pageBody + "</div></body></html>";
 
-    send(client, htmlResponse, (int)strlen(htmlResponse), 0);
+    send(client, page.c_str(), (int)page.size(), 0);
     closesocket(client);
     WSACleanup();
 
-    // Parse code from GET /...?code=XXX
-    std::string code;
-    size_t pos = request.find("?code=");
-    if (pos != std::string::npos) {
-        pos += 6;
-        size_t end = request.find_first_of("& \r\n", pos);
-        code = request.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
-    } else {
-        // Try without ?
-        pos = request.find("code=");
-        if (pos != std::string::npos) {
-            pos += 5;
-            size_t end = request.find_first_of("& \r\n", pos);
-            code = request.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
-        }
-    }
     return code;
 }
 
@@ -535,6 +575,16 @@ bool gc_authenticate(HWND parent, const GCCredentials& creds, bool /*unused*/) {
         "https://www.googleapis.com/auth/drive.readonly"
     );
 
+    std::string state = makeOAuthState();
+    if (state.empty()) {
+        MessageBoxW(parent,
+            L"Windows could not generate a secure sign-in token.\n"
+            L"Please try again.",
+            L"Authentication Failed",
+            MB_OK | MB_ICONWARNING);
+        return false;
+    }
+
     std::string authUrl =
         creds.authUri +
         "?client_id="    + urlEncode(creds.clientId) +
@@ -542,7 +592,8 @@ bool gc_authenticate(HWND parent, const GCCredentials& creds, bool /*unused*/) {
         "&response_type=code" +
         "&scope="        + scope +
         "&access_type=offline" +
-        "&prompt=consent";
+        "&prompt=consent" +
+        "&state="        + state;
 
     int confirm = MessageBoxW(parent,
         L"CALSS will open your browser to connect Google Classroom.\n\n"
@@ -559,7 +610,7 @@ bool gc_authenticate(HWND parent, const GCCredentials& creds, bool /*unused*/) {
     ShellExecuteA(nullptr, "open", authUrl.c_str(), nullptr, nullptr, SW_SHOW);
 
     // Listen for the OAuth callback (blocks until received or timeout)
-    std::string code = listenForCode();
+    std::string code = listenForCode(state);
 
     if (code.empty()) {
         MessageBoxW(parent,
