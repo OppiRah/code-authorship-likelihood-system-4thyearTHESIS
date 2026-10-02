@@ -674,6 +674,22 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
     // Midterm Exams — never against a Semifinal or Final Exam, which
     // cover entirely different material. Comparing across periods would
     // produce statistically meaningless similarity noise.
+    // Each compared file is tokenized and feature-extracted once per run
+    // (on first use) and reused for every pair it is in and for the
+    // flagged-pair authorship scoring below. Both are pure functions of
+    // the file, so results are identical to re-reading it per pair.
+    struct PreparedFile { TokenResult tok; FeatureResult feat; };
+    std::map<std::string, PreparedFile> prepared;
+    auto prepare = [&](const std::string& key) -> const PreparedFile& {
+        auto it = prepared.find(key);
+        if (it == prepared.end()) {
+            const std::string& path = compareFiles.at(key);
+            it = prepared.emplace(key, PreparedFile{tokenize(path),
+                                                    extractFeatures(path)}).first;
+        }
+        return it->second;
+    };
+
     std::vector<PairResult> allPairs;
     {
         std::map<std::string, std::vector<std::string>> byPeriod;
@@ -702,9 +718,11 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
                     ++pairsDone;
 
                     if (extractStudentName(nA) != extractStudentName(nB)) {
-                        PairResult r = analyzePair(
-                            nA, compareFiles.at(nA),
-                            nB, compareFiles.at(nB));
+                        const PreparedFile& pA = prepare(nA);
+                        const PreparedFile& pB = prepare(nB);
+                        PairResult r = analyzePairPrepared(
+                            nA, compareFiles.at(nA), pA.tok, pA.feat,
+                            nB, compareFiles.at(nB), pB.tok, pB.feat);
                         allPairs.push_back(r);
                     }
 
@@ -754,8 +772,8 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
 
         std::string sA = extractStudentName(pair.studentA);
         std::string sB = extractStudentName(pair.studentB);
-        PairVerdict verdict = scorer.scorePair(sA, pair.pathA,
-                                                 sB, pair.pathB);
+        PairVerdict verdict = scorer.scorePair(sA, pair.pathA, prepare(pair.studentA).feat,
+                                               sB, pair.pathB, prepare(pair.studentB).feat);
 
         auto fillStudent = [&](AuthorshipDisplay& d,
                                 const AuthorshipResult& r,

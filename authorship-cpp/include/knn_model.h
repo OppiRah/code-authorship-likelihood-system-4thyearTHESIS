@@ -43,10 +43,21 @@ public:
                                     const std::string& filepath);
     AuthorshipResult score(const std::string& studentName,
                            const std::string& filepath);
+    // Same, with the test file's features already extracted.
+    AuthorshipResult score(const std::string& studentName,
+                           const std::string& filepath,
+                           const FeatureResult& test);
     PairVerdict      scorePair(const std::string& studentA,
                                const std::string& fileA,
                                const std::string& studentB,
                                const std::string& fileB);
+    // Same, with both files' features already extracted.
+    PairVerdict      scorePair(const std::string& studentA,
+                               const std::string& fileA,
+                               const FeatureResult& featA,
+                               const std::string& studentB,
+                               const std::string& fileB,
+                               const FeatureResult& featB);
     std::vector<std::string> readyStudents() const;
     const StudentProfile*    getProfile(const std::string& name) const;
     int                      studentCount() const;

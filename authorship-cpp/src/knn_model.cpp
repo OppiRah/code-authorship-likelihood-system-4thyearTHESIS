@@ -77,6 +77,19 @@ void AuthorshipScorer::rebuildProfile(StudentProfile& profile) {
 
 AuthorshipResult AuthorshipScorer::score(const std::string& studentName,
                                           const std::string& filepath) {
+    // Same checks, in the same order, before reading the test file.
+    auto it = profiles_.find(studentName);
+    if (it == profiles_.end())
+        return makeError("No profile found for: " + studentName);
+    if (it->second.submissions.empty())
+        return makeError("Profile for " + studentName + " has no submissions.");
+
+    return score(studentName, filepath, extractFeatures(filepath));
+}
+
+AuthorshipResult AuthorshipScorer::score(const std::string& studentName,
+                                          const std::string& filepath,
+                                          const FeatureResult& test) {
     // Find profile
     auto it = profiles_.find(studentName);
     if (it == profiles_.end())
@@ -86,8 +99,7 @@ AuthorshipResult AuthorshipScorer::score(const std::string& studentName,
     if (profile.submissions.empty())
         return makeError("Profile for " + studentName + " has no submissions.");
 
-    // Extract features from test file
-    FeatureResult test = extractFeatures(filepath);
+    // Features of the test file (extracted by the caller)
     if (!test.success)
         return makeError(test.error);
     if (test.normalized.empty())
@@ -146,15 +158,17 @@ AuthorshipResult AuthorshipScorer::score(const std::string& studentName,
     return result;
 }
 
-PairVerdict AuthorshipScorer::scorePair(const std::string& studentA,
-                                         const std::string& fileA,
-                                         const std::string& studentB,
-                                         const std::string& fileB) {
+// Verdict from the two students' results (shared by both scorePair
+// overloads).
+static PairVerdict makeVerdict(const std::string& studentA,
+                               const std::string& studentB,
+                               AuthorshipResult resultA,
+                               AuthorshipResult resultB) {
     PairVerdict verdict;
     verdict.studentA = studentA;
     verdict.studentB = studentB;
-    verdict.resultA  = score(studentA, fileA);
-    verdict.resultB  = score(studentB, fileB);
+    verdict.resultA  = std::move(resultA);
+    verdict.resultB  = std::move(resultB);
 
     if (!verdict.resultA.success || !verdict.resultB.success) {
         verdict.likelyOriginal = "Unable to determine";
@@ -173,6 +187,26 @@ PairVerdict AuthorshipScorer::scorePair(const std::string& studentA,
 
     verdict.success = true;
     return verdict;
+}
+
+PairVerdict AuthorshipScorer::scorePair(const std::string& studentA,
+                                         const std::string& fileA,
+                                         const std::string& studentB,
+                                         const std::string& fileB) {
+    AuthorshipResult resultA = score(studentA, fileA);
+    AuthorshipResult resultB = score(studentB, fileB);
+    return makeVerdict(studentA, studentB, std::move(resultA), std::move(resultB));
+}
+
+PairVerdict AuthorshipScorer::scorePair(const std::string& studentA,
+                                         const std::string& fileA,
+                                         const FeatureResult& featA,
+                                         const std::string& studentB,
+                                         const std::string& fileB,
+                                         const FeatureResult& featB) {
+    AuthorshipResult resultA = score(studentA, fileA, featA);
+    AuthorshipResult resultB = score(studentB, fileB, featB);
+    return makeVerdict(studentA, studentB, std::move(resultA), std::move(resultB));
 }
 
 std::vector<std::string> AuthorshipScorer::readyStudents() const {

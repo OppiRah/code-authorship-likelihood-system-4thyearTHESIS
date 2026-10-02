@@ -47,6 +47,14 @@ struct SummaryStats {
 PairResult analyzePair(const std::string& nameA, const std::string& pathA,
                        const std::string& nameB, const std::string& pathB);
 
+// Same result as analyzePair, for a caller that has already run
+// tokenize() and extractFeatures() on both files (the pipeline does that
+// once per file per run instead of once per pair).
+PairResult analyzePairPrepared(const std::string& nameA, const std::string& pathA,
+                               const TokenResult& tokA, const FeatureResult& featA,
+                               const std::string& nameB, const std::string& pathB,
+                               const TokenResult& tokB, const FeatureResult& featB);
+
 // Filter to flagged pairs only
 std::vector<PairResult> flaggedPairs(const std::vector<PairResult>& results);
 

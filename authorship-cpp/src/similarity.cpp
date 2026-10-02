@@ -32,7 +32,6 @@ static PairResult makeErrorPair(const std::string& nameA,
 
 PairResult analyzePair(const std::string& nameA, const std::string& pathA,
                        const std::string& nameB, const std::string& pathB) {
-    // ── Token similarity ──────────────────────────────────────
     TokenResult tokA = tokenize(pathA);
     TokenResult tokB = tokenize(pathB);
 
@@ -41,13 +40,27 @@ PairResult analyzePair(const std::string& nameA, const std::string& pathA,
     if (!tokB.success)
         return makeErrorPair(nameA, nameB, "Cannot read: " + pathB);
 
+    FeatureResult featA = extractFeatures(pathA);
+    FeatureResult featB = extractFeatures(pathB);
+
+    return analyzePairPrepared(nameA, pathA, tokA, featA,
+                               nameB, pathB, tokB, featB);
+}
+
+PairResult analyzePairPrepared(const std::string& nameA, const std::string& pathA,
+                               const TokenResult& tokA, const FeatureResult& featA,
+                               const std::string& nameB, const std::string& pathB,
+                               const TokenResult& tokB, const FeatureResult& featB) {
+    if (!tokA.success)
+        return makeErrorPair(nameA, nameB, "Cannot read: " + pathA);
+    if (!tokB.success)
+        return makeErrorPair(nameA, nameB, "Cannot read: " + pathB);
+
+    // ── Token similarity ──────────────────────────────────────
     SimilarityScore simScore = computeSimilarity(tokA, tokB);
     double tokenPct = simScore.combined * 100.0;
 
     // ── Style similarity ──────────────────────────────────────
-    FeatureResult featA = extractFeatures(pathA);
-    FeatureResult featB = extractFeatures(pathB);
-
     double stylePct = 0.0;
     if (featA.success && featB.success &&
         !featA.normalized.empty() && !featB.normalized.empty()) {

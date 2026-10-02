@@ -50,6 +50,20 @@ Per operation (2,973 files, 20,000 sampled pairs): `tokenize` 0.103 ms
 per file, `extractFeatures` 0.079 ms per file, `computeSimilarity`
 0.043 ms per pair.
 
+### After PF-1 (per-run file caching), same PC
+
+Pipeline only, timed by phase through the progress callback, data
+already loaded once (so the manifest exists — see the first-load note):
+
+| Dataset | Before PF-1 | After PF-1 |
+|---|---:|---:|
+| `bscs7_programming1` | ~1.5 s | ~0.55 s |
+| `stress_test_all_blocks` | ~28–29 s | ~7.4 s |
+
+First load of a folder with subfolders is much slower (four blocks:
+~41 s just to load) because `autoTagManualBlock` re-reads the whole
+`calss_sync_manifest.jsonl` once per file — not addressed by PF-1.
+
 ## GUI smoke checklist
 
 Build with `compile.bat`, launch `authorship.exe`, and tick each item.
