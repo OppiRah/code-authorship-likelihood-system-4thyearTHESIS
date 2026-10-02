@@ -708,7 +708,6 @@ std::wstring truncateMiddle(HDC hdc, const std::wstring& text, int maxWidth);
 void updateUI();
 std::string wideToUtf8(const std::wstring& w);
 std::string extractPeriodGC(const std::string& filename);
-std::string extractStudentNameGC(const std::string& filename);
 void handleUnclassifiedAction(HWND hwnd, int fileIdx, bool isDelete);
 std::wstring periodDisplayLabelGC(const std::string& period);
 void closeStudentDetail(HWND hwnd);

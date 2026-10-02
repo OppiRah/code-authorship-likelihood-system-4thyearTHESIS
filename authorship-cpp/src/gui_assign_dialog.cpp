@@ -8,11 +8,6 @@
 // Split out of gui.cpp unchanged. All 8 of its globals stay private
 // to this file; handleUnclassifiedAction is the single entry point
 // the rest of the app calls, already declared in gui_common.h.
-//
-// NOTE: extractStudentNameGC() used to sit between applyFileAssignment
-// and deleteUnclassifiedFile in gui.cpp, but its only caller is
-// exportPairsToCsv (Flagged Pairs), so it stayed behind rather than
-// moving here. See the checkpoint 3 report.
 // ─────────────────────────────────────────────────────────────
 
 #include "../include/gui_common.h"

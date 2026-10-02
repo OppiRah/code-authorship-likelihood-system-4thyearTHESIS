@@ -3157,21 +3157,6 @@ const wchar_t* pairSeverityLabel(double combinedScorePct) {
 // siblings drawStatsDashboard/drawAISummary which were already there.
 
 // Draw the stats dashboard (6 cards in a grid)
-// Lightweight local mirror of main.cpp's extractStudentName() (which
-// is static and not exported) — good enough for display purposes in
-// CSV export. Strips the "{period}{type}__" prefix and "_ASGN..."
-// fingerprint suffix that Classroom-synced/assigned files carry.
-std::string extractStudentNameGC(const std::string& filename) {
-    std::string name = filename;
-    size_t dot = name.rfind('.');
-    if (dot != std::string::npos) name = name.substr(0, dot);
-    size_t delim = name.rfind("__");
-    if (delim != std::string::npos) name = name.substr(delim + 2);
-    size_t fp = name.rfind("_ASGN");
-    if (fp != std::string::npos) name = name.substr(0, fp);
-    return name.empty() ? filename : name;
-}
-
 
 // Switches the active report tab. Shared by the tab-bar mouse click
 // handler and activateFocused() (item 2) — identical to what the
@@ -3814,8 +3799,9 @@ bool exportPairsToCsv(HWND hwnd) {
             for (char c : s) { if (c == '"') out += '"'; out += c; }
             return "\"" + out + "\"";
         };
-        f << csvEscape(extractStudentNameGC(p.filenameA)) << ","
-          << csvEscape(extractStudentNameGC(p.filenameB)) << ","
+        // Same student identity the pipeline and the Classes tab use.
+        f << csvEscape(studentNameForFile(p.filenameA)) << ","
+          << csvEscape(studentNameForFile(p.filenameB)) << ","
           << std::fixed << std::setprecision(1) << p.combinedScore << ","
           << p.tokenScore << "," << p.styleScore << ","
           << sevLabel << "," << (p.flagged ? "Yes" : "No") << "\n";
