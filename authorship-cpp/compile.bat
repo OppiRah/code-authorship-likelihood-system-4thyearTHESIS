@@ -20,6 +20,7 @@ g++ -std=c++17 ^
     src/gui_overview.cpp ^
     src/gui_flagged.cpp ^
     src/gui_students.cpp ^
+    src/gui_source_view.cpp ^
     src/gui_ai_settings.cpp ^
     src/secret_store.cpp ^
     src/app_paths.cpp ^

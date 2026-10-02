@@ -756,8 +756,8 @@ bool exportPairsToCsv(HWND hwnd);
 void jumpToFlaggedPair(HWND hwnd, int pairIndex);
 void selectSeverityFilter(HWND hwnd, PairSeverityFilter f);
 void togglePairExpanded(HWND hwnd, int pairIdx);
-// "View source" feature (defined in gui.cpp, alongside the rest of the
-// AppModal subsystem it extends): reads `path` off disk (capped, with a
+// "View source" feature (defined in gui_source_view.cpp; it extends the
+// AppModal subsystem in gui.cpp): reads `path` off disk (capped, with a
 // missing-file fallback — see the function's own comment), then opens
 // it as a MODAL_SOURCE_VIEW modal. `label`/`subtitle` are shown as the
 // modal's title/subtitle regardless of whether the read succeeded.
@@ -771,6 +771,18 @@ void openSourceCompareModal(const std::string& pathA, const std::wstring& labelA
                              const std::string& pathB, const std::wstring& labelB,
                              const std::string& studentB,
                              bool showA);
+// Rest of the View source modal (gui_source_view.cpp). drawAppModal
+// (gui.cpp) draws it; ContentProc forwards its input while it is the
+// open modal; the main message loop's Tab toggles A/B in compare mode.
+void drawSourceViewModal(HDC hdcScreen, const RECT& viewport);
+void swapSourceViewSide(HWND hwnd, int side);
+bool sourceViewHandleKey(HWND hwnd, WPARAM wParam);
+void sourceViewHandleWheel(HWND hwnd, int delta);
+void sourceViewScrollTick(HWND hwnd);
+void sourceViewHandleClick(HWND hwnd, int mx, int my);
+// AppModal pieces in gui.cpp that gui_source_view.cpp also uses.
+void dismissAppModal(bool primaryPressed);
+extern bool g_modalFocusOnPrimary;
 void toggleShowAllFeatures(HWND hwnd, int key);
 void closeHelpCarousel();
 void drawHelpCarousel(HDC hdcScreen, const RECT& viewport);
