@@ -3964,9 +3964,11 @@ static void handleMenuCommand(HWND hwnd, int commandId) {
             break;
 
         case ID_VIEW_PROFILES:
-            showToast(L"Detailed profile viewer will be implemented in Stage 6. "
-                       L"For now, you can view student profiles in the generated "
-                       L"HTML report.", TOAST_INFO);
+            // Profiles live on the Classes tab (no separate viewer, no
+            // HTML report since the batch report was removed).
+            showToast(L"Student profiles are on the Classes tab after you run an "
+                       L"analysis — open a student there for their style "
+                       L"profile, submissions and flagged pairs.", TOAST_INFO);
             break;
 
         case ID_VIEW_AUDIT_LOG: {
