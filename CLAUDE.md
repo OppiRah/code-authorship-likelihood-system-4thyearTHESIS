@@ -289,7 +289,7 @@ the golden check byte-identically.
 ## Build
 
 ```
-x86_64-w64-mingw32-g++ -std=c++17 -O2 -static -static-libgcc -static-libstdc++ ...
+x86_64-w64-mingw32-g++ -std=c++17 -O2 -mwindows -static -static-libgcc -static-libstdc++ ...
 -lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus -ladvapi32
 ```
 
@@ -298,6 +298,10 @@ imports MinGW's `libwinpthread-1.dll` (pulled in by `std::thread`) and
 fails to start on a PC without MinGW (`0xC0000135`). Check with
 `objdump -p authorship.exe | findstr "DLL Name"` — only Windows system
 DLLs and `api-ms-win-crt-*` (UCRT, built into Windows 10/11) should appear.
+`-mwindows` (also Phase 4) builds a GUI-subsystem exe: before it, a
+double-click opened an empty console next to CALSS (a leftover of the
+removed CLI mode), and closing that console killed the app. Entry is
+still `int main()`. stdout/stderr go nowhere — don't rely on them.
 
 `compile.bat` uses an explicit file list — every new translation unit must
 be added manually. (2026-10-02: added `src/gui_ai_settings.cpp`,

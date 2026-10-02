@@ -1,7 +1,7 @@
 @echo off
 g++ -std=c++17 ^
     -static -static-libgcc -static-libstdc++ ^
-    -O2 ^
+    -O2 -mwindows ^
     src/main.cpp ^
     src/analysis_pipeline.cpp ^
     src/student_report.cpp ^
