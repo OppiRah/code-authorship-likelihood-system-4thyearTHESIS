@@ -1,0 +1,12 @@
+message,"Analysis complete. 2186 pairs analyzed, 705 flagged."
+valid,1
+totalPairs,2186
+flaggedCount,705
+exactDuplicates,9
+highSimilarity,363
+maxScore,99.997156795298807
+averageScore,69.809104555555976
+languageMismatch,finalactivity1__AMBEGUIAJansen_Rence_L_ASGN629654 (suspected: Python)
+languageMismatch,finalactivity2__AMBEGUIAJansen_Rence_L_ASGN763361 (suspected: Java)
+languageMismatch,finalactivity3__AMBEGUIAJansen_Rence_L_ASGN693483 (suspected: JavaScript)
+languageMismatch,finalactivity4__AMBEGUIAJansen_Rence_L_ASGN920412 (suspected: Python)

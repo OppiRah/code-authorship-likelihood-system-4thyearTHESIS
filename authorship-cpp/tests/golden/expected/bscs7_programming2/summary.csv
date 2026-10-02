@@ -1,0 +1,8 @@
+message,"Analysis complete. 1740 pairs analyzed, 662 flagged."
+valid,1
+totalPairs,1740
+flaggedCount,662
+exactDuplicates,4
+highSimilarity,319
+maxScore,99.992776723191554
+averageScore,73.177995537182866
