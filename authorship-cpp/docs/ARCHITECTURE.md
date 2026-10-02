@@ -154,7 +154,8 @@ identifiers); `SimilarityScore` (jaccard/lcs/combined + label/color).
 `<map>` logic, no Windows dependency.
 
 **Depended on by:** `similarity.cpp` (the token-similarity half of
-`analyzePair`), `main.cpp`'s legacy CLI self-test block (commented out).
+`analyzePair`), `gui_source_view.cpp` (`normalizeSourceLines`, for View
+source's display-only line matching).
 
 ---
 
@@ -177,7 +178,7 @@ ceiling + display label, defined in the `.cpp`); `FeatureResult` (raw +
   comment density/style, bracket-same-line ratio, for-vs-while preference,
   operator spacing, line/function length, blank-line ratio, return-at-end
   ratio. All hand-rolled text scans, no AST.
-  Nothing here executes student code — see `main.cpp`'s language-check
+  Nothing here executes student code — see `analysis_pipeline.cpp`'s language-check
   rationale for why that's a deliberate constraint, not an oversight.
 - `normalizeVector` / `averageVectors` — scale raw values to 0–1 via
   `FEATURE_MAX`; average a set of normalized vectors into one profile.
@@ -193,8 +194,8 @@ ceiling + display label, defined in the `.cpp`); `FeatureResult` (raw +
 **Depends on:** nothing project-internal, no Windows dependency.
 
 **Depended on by:** `knn_model.cpp` (feature extraction + comparison for
-scoring), `similarity.cpp` (the style half of `analyzePair`), `main.cpp`
-(profile-vector capture for `StudentProfileSummary.featureVector`, the
+scoring), `similarity.cpp` (the style half of `analyzePair`),
+`analysis_pipeline.cpp` (profile-vector capture for `StudentProfileSummary.featureVector`, the
 Style DNA strip's data source).
 
 ---
@@ -230,10 +231,9 @@ construction, default 3).
 **Depends on:** `features.h` (feature extraction, `styleSimilarity`,
 `compareStyles`).
 
-**Depended on by:** `main.cpp` (the pipeline's per-pair authorship scoring
-step, plus the HTML report and student-report generators), `gemini.h`/
-`gemini.cpp` (`buildPrompt` takes an `AuthorshipScorer&` for the legacy
-single-blob AI summary path).
+**Depended on by:** `analysis_pipeline.cpp` (profile building and the
+per-pair authorship scoring step, via `scorePair` with features the
+pipeline already extracted).
 
 ---
 
@@ -248,23 +248,21 @@ label/color + `flagged` bool); `SummaryStats` (aggregate counts across a
 result set).
 
 **Key functions (impl).**
-- `analyzePair` — tokenizes and extracts features for both files, computes
+- `analyzePair` — tokenizes and extracts features for both files, then
+  delegates to `analyzePairPrepared`.
+- `analyzePairPrepared` — given both files' tokens and features, computes
   token similarity (`computeSimilarity`) and style similarity
   (`styleSimilarity`), combines 60% token + 40% style, classifies, flags
   if combined ≥ 75%.
-- `analyzeAll` — all-pairs comparison over a name→path map, sorted flagged-
-  first then by score descending.
 - `flaggedPairs` — filters a result set to just the flagged ones.
 - `summaryStats` — aggregate totals (flagged count, exact-duplicate count,
   high-similarity count, average/max score) over a result set.
 
 **Depends on:** `tokenizer.h`, `features.h`.
 
-**Depended on by:** `main.cpp` (the pipeline's pairwise-comparison step —
-though `main.cpp` actually calls `analyzePair`/period-grouped logic
-directly rather than the batch `analyzeAll`, since it needs period-scoped
-grouping `analyzeAll` doesn't know about), `gemini.h`/`gemini.cpp`
-(`PairResult` is the legacy AI-summary prompt's input type).
+**Depended on by:** `analysis_pipeline.cpp` (its period-grouped pair loop
+calls `analyzePairPrepared` with each file's cached tokens/features, then
+`flaggedPairs`/`summaryStats`).
 
 ---
 
@@ -273,26 +271,24 @@ grouping `analyzeAll` doesn't know about), `gemini.h`/`gemini.cpp`
 ### `gemini.h` / `gemini.cpp`
 
 **Purpose.** Google Gemini API integration for AI-generated instructor-
-facing summaries. Two generations of API live here side by side: a legacy
-single-blob summary (`generateAISummary`, still feeding the standalone
-HTML report) and a newer tiered restructure (`generatePairNarratives` /
-`generateCrossPairPatterns`, feeding the GUI's Overview and Flagged Pairs
-tabs). Uses WinHTTP directly — no HTTP client library dependency.
+facing summaries: `generatePairNarratives` (Tier 1, per-pair notes on the
+Flagged Pairs tab) and `generateCrossPairPatterns` (Tier 2, the Overview's
+findings). The legacy single-blob summary was removed 2026-10-02. Uses
+WinHTTP directly — no HTTP client library dependency.
 
-**Key types (header).** `AISummary` (text/success/error/skipped) — the
-legacy path's result type. The tiered path's result types
+**Key types (header).** `GEMINI_MAX_PAIRS` (50) — the most flagged pairs
+sent per run (the pipeline applies it). The result types
 (`AIPairNarrative`, `AIBatchPatterns`) are deliberately declared in
 `results_data.h` instead, to avoid a circular include (`AnalysisResults`
 needs them as real members, and `results_data.h` is included by this
 header).
 
 **Key functions (impl).**
-- `loadApiKey` — reads `api_key.txt`, treats the placeholder string as
-  "no key configured" (graceful skip, not an error).
-- `buildPrompt` / `generateAISummary` — legacy path: builds one big prompt
-  covering every flagged pair with explicit "don't accuse, don't name a
-  cheater" rules, calls Gemini once, returns free text.
-- `callGeminiAPI` (static) — the actual WinHTTP POST to
+- `loadApiKey` — reads the key from Windows Credential Manager via
+  `secret_store` (importing a legacy `api_key.txt` once); empty means "no
+  key configured" (graceful skip, not an error). `gemini_testKey` backs
+  File > AI Settings' "Test key".
+- `callGeminiAPI` (static) — the actual WinHTTP POST (explicit timeouts) to
   `generativelanguage.googleapis.com`, shared by every public entry point
   in this file.
 - `buildPairNarrativePrompt` / `generatePairNarratives` — Tier 1: one
@@ -305,14 +301,14 @@ header).
   — hand-rolled JSON string/array extraction (no JSON library dependency,
   consistent with the rest of the project).
 
-**Depends on:** `similarity.h`, `knn_model.h`, `results_data.h`; WinHTTP
+**Depends on:** `results_data.h`, `secret_store.h`; WinHTTP
 (`_WIN32`-gated).
 
-**Depended on by:** `main.cpp` (`runAnalysisPipeline` calls all three
-generation functions), `gui_common.h` transitively includes this header
-(so every GUI file sees `AISummary`, `AIPairNarrative`, etc.), though the
-GUI never calls into `gemini.cpp` directly — it only reads the results
-`main.cpp` already put into `g_analysisResults`.
+**Depended on by:** `analysis_pipeline.cpp` (`runAnalysisPipeline` calls
+both generation functions on the top `GEMINI_MAX_PAIRS` flagged pairs),
+`gui_ai_settings.cpp` (key save/remove/test), and `gui_common.h`
+transitively; otherwise the GUI only reads the results already put into
+`g_analysisResults`.
 
 ---
 
@@ -320,8 +316,7 @@ GUI never calls into `gemini.cpp` directly — it only reads the results
 
 **Purpose.** Google Classroom OAuth 2.0 (installed-app flow) and API
 integration: authenticate, list courses/assignments, download `.c`
-submissions with category/period metadata embedded in the filename. At
-960 lines, the largest non-`main.cpp`/non-GUI file.
+submissions with category/period metadata embedded in the filename.
 
 **Key types (header).** `GCourse`, `GAssignment`, `GCToken`,
 `GCCredentials`, `GCResult`; `SyncManifestEntry` (title/block, for
@@ -347,7 +342,7 @@ callback port (8080).
   triggering `gc_signOut()` so the *next* sync prompts for the missing
   scope), downloads each `.c` Drive attachment, and names it
   `{period}{type}__{studentName}_ASGN{fingerprint}.c` — the exact encoding
-  `main.cpp`'s `categorizeFile`/`extractStudentName`/`extractPeriod`
+  `analysis_pipeline.cpp`'s `categorizeFile`/`extractStudentName`/`extractPeriod`
   decode on the read side. Also writes a `calss_sync_manifest.jsonl` entry
   per file (assignment title + course/"block") for display purposes only.
 - `gc_loadSyncManifest` — reads that manifest back, used by the Students
@@ -356,8 +351,8 @@ callback port (8080).
 **Depends on:** WinHTTP + Winsock2 (`_WIN32`-gated), `<filesystem>`.
 No dependency on any other project file.
 
-**Depended on by:** `main.cpp` (indirectly, via the filename convention
-this file writes and `main.cpp` parses — no direct call), `gui_sync_sheet.cpp`
+**Depended on by:** `analysis_pipeline.cpp` (indirectly, via the filename
+convention this file writes and the pipeline parses — no direct call), `gui_sync_sheet.cpp`
 (the actual caller of every `gc_*` function, via its three background
 worker threads), `gui_students.cpp` (`gc_loadSyncManifest`, for block
 grouping).
@@ -369,12 +364,12 @@ grouping).
 ### `results_data.h`
 
 **Purpose.** Header-only. Defines every struct used to hand analysis
-results from `main.cpp` to the GUI. This is the contract between the
+results from the pipeline to the GUI. This is the contract between the
 pipeline and the presentation layer — nothing here does any computation.
 
 **Key types.**
 - `AnalysisPhase` enum + `AnalysisProgressCallback` — the progress-
-  reporting hook shared verbatim between `main.cpp` (which calls it) and
+  reporting hook shared verbatim between `analysis_pipeline.cpp` (which calls it) and
   the GUI (which registers it), declared once here specifically so the
   two translation units can't drift into incompatible copies.
 - `StyleNoteDisplay` / `AuthorshipDisplay` / `PairAnalysisDisplay` — the
@@ -395,7 +390,7 @@ pipeline and the presentation layer — nothing here does any computation.
 
 **Depended on by:** `gemini.h` (includes it directly), `gui_common.h`
 (includes it, making every struct here visible to every GUI file),
-`main.cpp` (populates `AnalysisResults` via `g_analysisResults`).
+`analysis_pipeline.cpp` (populates `AnalysisResults` via `g_analysisResults`).
 
 ---
 
@@ -469,10 +464,11 @@ letters because `commctrl.h` macros silently resolved to `*_A` variants).
    `ModalKind`), `FocusKind`/`FocusableItem` (the keyboard-focus system),
    `ResultsPage`, and every per-screen hit-rect struct (`StudentCardRect`,
    `CollapsedPairRowRect`, `BlockTabRect`, etc.).
-5. Four `extern` declarations reaching into `main.cpp`
-   (`runAnalysisPipeline`, `generateStudentSimilarityReport`,
-   `g_analysisResults`, `setAnalysisProgressCallback`) — `main.cpp` itself
-   doesn't include this header, so these are one-directional.
+5. `extern` declarations reaching into `analysis_pipeline.cpp`
+   (`runAnalysisPipeline`, `g_analysisResults`,
+   `setAnalysisProgressCallback`, `studentNameForFile`, `periodForFile`)
+   and `student_report.cpp` (`generateStudentSimilarityReport`) — neither
+   includes this header, so these are one-directional.
 6. `extern` declarations for every cross-screen global (~68 as of the
    Students-tab split) — each is *defined exactly once*, but **not**
    centralized in one file. As of the most recent split checkpoint, most
@@ -518,7 +514,7 @@ all seven splits) — it is their only shared include.
 ### `gui.cpp`
 
 **Purpose.** The original monolith. Still the largest file in the project
-(3,981 lines) even after four extraction checkpoints pulled entire
+(4,704 lines as of 2026-10-02) even after five extraction checkpoints pulled entire
 screens out of it. What's still here, deliberately:
 
 - **Window chrome and infrastructure that has no single "owning tab"**:
@@ -552,8 +548,8 @@ screens out of it. What's still here, deliberately:
 by a specific split file.
 
 **Key functions.** In addition to the four window procedures: `runGUI`
-(entry from `main.cpp`), `onRunAnalysis`/`onSelectFolder`/`onImportFiles`/
-`onViewReport` (sidebar button handlers), `handleMenuCommand`, `drawTabBar`/
+(entry from `main.cpp`), `onRunAnalysis`/`onSelectFolder`/`onImportFiles`
+(sidebar button handlers), `handleMenuCommand`, `drawTabBar`/
 `drawContextStrip` (the fixed chrome above every tab's content — shared,
 not tab-specific, which is why they didn't move with any one tab split).
 
@@ -625,7 +621,7 @@ Tab/Enter keyboard handling to this sheet when it's the active window).
 
 **Purpose.** The modal dialog that lets an instructor manually attach a
 student/category/period to a file the pipeline couldn't auto-categorize
-(unknown type, unknown student, or both — see `main.cpp`'s
+(unknown type, unknown student, or both — see `analysis_pipeline.cpp`'s
 `categorizeFile` priority hierarchy), plus the file-rename/delete
 operations that follow from it. Renames the file to match the exact
 `{period}{type}__{name}_ASGN{fingerprint}.c` convention Classroom sync
@@ -736,7 +732,7 @@ stay `static`.
 **Key functions.**
 - `analysisThread` — runs on a `std::thread`, registers a progress
   callback (via `setAnalysisProgressCallback`, declared in `gui_common.h`
-  reaching into `main.cpp`) that updates the three progress globals and
+  reaching into `analysis_pipeline.cpp`) that updates the three progress globals and
   `PostMessage`s `WM_ANALYSIS_PROGRESS` back to the main window, then
   calls `runAnalysisPipeline` and finally posts `WM_ANALYSIS_COMPLETE`.
   This is the one function that actually invokes the analysis pipeline in
@@ -754,7 +750,7 @@ stay `static`.
   from the in-app sidebar seal), falling back to a drawn gold circle if
   the file is missing.
 
-**Depends on:** `gui_common.h`; `main.cpp`'s `runAnalysisPipeline`/
+**Depends on:** `gui_common.h`; `analysis_pipeline.cpp`'s `runAnalysisPipeline`/
 `setAnalysisProgressCallback` (via the `extern` contract).
 
 **Depended on by:** `gui.cpp`'s `onRunAnalysis` (starts `analysisThread`
@@ -976,7 +972,7 @@ the whole application, returns the message-loop exit code.
 declaration compiles away entirely on a non-Windows build).
 
 **Depended on by:** `main.cpp` (the only external caller — `main()` calls
-`runGUI(GetModuleHandle(nullptr))` when launched with no arguments);
+`runGUI(GetModuleHandle(nullptr))`);
 `gui_common.h` includes it too (transitively pulling in `<windows.h>` for
 every split file, which is the actual reason it's included there rather
 than for `runGUI` itself — no split file calls `runGUI`).

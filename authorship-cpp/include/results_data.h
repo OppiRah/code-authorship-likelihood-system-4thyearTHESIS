@@ -17,8 +17,8 @@
 // weighting, or algorithm behavior. The callback returns false to
 // request cancellation (checked only in the pairwise comparison loop,
 // the one phase long enough for cancellation to meaningfully matter);
-// returning true (or having no callback at all, as in CLI mode) means
-// "keep going."
+// returning true (or having no callback at all, as in the golden-output
+// test harness) means "keep going."
 enum class AnalysisPhase {
     LoadingFiles, BuildingProfiles, ComparingPairs, GeneratingSummary
 };
