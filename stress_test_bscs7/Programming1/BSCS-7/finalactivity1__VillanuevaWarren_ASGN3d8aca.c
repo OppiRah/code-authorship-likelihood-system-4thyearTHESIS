@@ -1,0 +1,23 @@
+/*
+ * Name: Warren Villanueva
+ * Program: Array Sum and Average
+ */
+
+#include <stdio.h>
+
+int main() {
+    int numbers[50], size;
+    printf("How many numbers? ");
+    scanf("%d", &size);
+    for (int i = 0; i < size; i += 1) {
+        printf("Enter number %d: ", i+1);
+        scanf("%d", &numbers[i]);
+    }
+    int sum = 0;
+
+    for (int i = 0; i < size; i += 1) {  // add all elements
+        sum = sum + numbers[i];
+    }
+    printf("Sum = %d\n", sum);
+    printf("Average = %.2f\n", sum / (float)size);
+}
