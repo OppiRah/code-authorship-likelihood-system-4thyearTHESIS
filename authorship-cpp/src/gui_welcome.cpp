@@ -43,9 +43,11 @@ static Image* getULLoadingLogo() {
 // Updated live by the AnalysisProgressCallback registered in
 // analysisThread() below, via real checkpoints inside
 // runAnalysisPipeline() — not simulated Sleep()-based fake progress.
-static AnalysisPhase g_analysisPhase        = AnalysisPhase::LoadingFiles;
-static int           g_analysisPhaseCurrent = 0;
-static int           g_analysisPhaseTotal   = 0;
+// Atomic: written by the analysis thread's progress callback, read by
+// the GUI thread's paint.
+static std::atomic<AnalysisPhase> g_analysisPhase        { AnalysisPhase::LoadingFiles };
+static std::atomic<int>           g_analysisPhaseCurrent { 0 };
+static std::atomic<int>           g_analysisPhaseTotal   { 0 };
 std::atomic<bool> g_analysisCancelRequested { false };
 
 static const wchar_t* analysisPhaseLabel(AnalysisPhase p) {
@@ -89,9 +91,12 @@ void analysisThread(std::wstring folder, bool useAI) {
 
     setAnalysisProgressCallback(nullptr); // detach before this thread exits
 
-    g_state.progressMsg = s2w(resultMsg);
-
-    PostMessage(g_hMainWindow, WM_ANALYSIS_COMPLETE, 0, 0);
+    // g_state.progressMsg is painted by the GUI thread, so this thread
+    // must not write it. The message travels in lParam instead; the
+    // WM_ANALYSIS_COMPLETE handler stores it and deletes the copy.
+    auto* msg = new std::wstring(s2w(resultMsg));
+    if (!PostMessage(g_hMainWindow, WM_ANALYSIS_COMPLETE, 0, (LPARAM)msg))
+        delete msg;
 }
 
 // Draw the welcome/idle screen
@@ -163,7 +168,12 @@ int drawWelcomeScreen(HDC hdc, int x, int y, int width) {
         }
         int chainX = x + (width - totalChainW) / 2;
 
-        int activeIdx = (int)g_analysisPhase;
+        // One snapshot of the worker's progress for this whole frame.
+        const AnalysisPhase phaseNow = g_analysisPhase.load();
+        const int phaseCur = g_analysisPhaseCurrent.load();
+        const int phaseTot = g_analysisPhaseTotal.load();
+
+        int activeIdx = (int)phaseNow;
         for (int i = 0; i < 4; ++i) {
             bool completed = i < activeIdx;
             bool active    = i == activeIdx;
@@ -194,8 +204,7 @@ int drawWelcomeScreen(HDC hdc, int x, int y, int width) {
         HBRUSH tBr = CreateSolidBrush(GRAY_800);
         FillRect(hdc, &track, tBr); DeleteObject(tBr);
 
-        int pct = (g_analysisPhaseTotal > 0)
-            ? (g_analysisPhaseCurrent * 100 / g_analysisPhaseTotal) : 0;
+        int pct = (phaseTot > 0) ? (phaseCur * 100 / phaseTot) : 0;
         int fillW = (barW * pct) / 100;
         if (fillW > 0) {
             RECT fill = {barX, barY, barX + fillW, barY + barH};
@@ -206,10 +215,10 @@ int drawWelcomeScreen(HDC hdc, int x, int y, int width) {
         // "Comparing pairs · 48 of 78"
         SetTextColor(hdc, GRAY_400);
         RECT curR = {x, barY + S(18), x + width, barY + S(40)};
-        std::wstring curTxt = analysisPhaseLabel(g_analysisPhase);
-        if (g_analysisPhaseTotal > 0) {
-            curTxt += L"  \u00B7  " + std::to_wstring(g_analysisPhaseCurrent) +
-                      L" of " + std::to_wstring(g_analysisPhaseTotal);
+        std::wstring curTxt = analysisPhaseLabel(phaseNow);
+        if (phaseTot > 0) {
+            curTxt += L"  \u00B7  " + std::to_wstring(phaseCur) +
+                      L" of " + std::to_wstring(phaseTot);
         }
         DrawTextW(hdc, curTxt.c_str(), -1, &curR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 

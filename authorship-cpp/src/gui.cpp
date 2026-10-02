@@ -5471,6 +5471,13 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg,
             return 0;
 
         case WM_ANALYSIS_COMPLETE:
+            // The worker's result message arrives in lParam (heap copy,
+            // owned here) so only this thread ever writes progressMsg.
+            if (lParam) {
+                std::wstring* msg = reinterpret_cast<std::wstring*>(lParam);
+                g_state.progressMsg = *msg;
+                delete msg;
+            }
             invalidateStudentsTabCache(); // new results — Classes cache is per run
             g_state.analysisRunning  = false;
             g_state.analysisComplete = true;
