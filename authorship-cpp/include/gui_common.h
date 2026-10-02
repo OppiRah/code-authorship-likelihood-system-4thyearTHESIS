@@ -544,6 +544,15 @@ struct AISummaryLinkRect { RECT r; int pairIndex; };
 // (already included above) — declared once there so both main.cpp and
 // the GUI see the identical enum rather than two copies that could
 // drift apart.
+//
+// THREADING RULE for g_analysisResults: runAnalysisPipeline() runs on
+// the analysis worker thread and is the only writer; it resets the
+// object at the start of a run and fills it in place. The GUI thread
+// may read it ONLY while g_state.analysisComplete is true. That flag is
+// set false (GUI thread) before the worker starts and set true (GUI
+// thread) only in the WM_ANALYSIS_COMPLETE handler, after the worker
+// has finished writing — so reads and writes never overlap. Any new
+// code that reads results must keep behind that flag.
 // ─────────────────────────────────────────────────────────────
 extern std::string runAnalysisPipeline(const std::string& dataFolder,
                                        bool useAI);
