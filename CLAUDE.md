@@ -141,12 +141,32 @@ GLOBALS` section header).
 
 ## Known pre-existing bugs — DO NOT FIX unless explicitly asked
 
-1. `g_studentCardRects` stores its `y` without the `+g_scrollY` convention
-   every other content hit-rect vector uses → student-card clicks mis-hit
-   once the grid is scrolled.
-2. `g_backButtonRect` is set from a fixed reference point in `WM_PAINT`,
-   but the button is drawn later at a scroll-adjusted position → they
-   drift apart once the detail page is scrolled.
+None open. The two listed here before were fixed on 2026-10-01 at the
+user's request (the Classes roster rewrite depended on #1):
+1. ~~`g_studentCardRects` y without `+g_scrollY`~~ — rects now
+   content-space like every other hit rect.
+2. ~~`g_backButtonRect` set from a fixed point in `drawStudentsPage`~~ —
+   now set from the actually-drawn back link inside
+   `drawStudentDetailPage`.
+
+Still flagged, not fixed: a native file dialog with OK (e.g. Export CSV
+Save As) changes the process working directory, and `api_key.txt` /
+`report.html` are opened by relative path — the next run can't find the
+API key. Overview "High similarity" (token label "High Similarity",
+all pairs) and the Flagged tab's "High" filter (flagged, combined
+≥85%) count different things.
+
+## UI pass 2026-10-01 (uncommitted at time of writing)
+
+Overview redesigned as a "report sheet" (headline + stat row + risk
+bar, no cards); AI summary "Pair N" links (prompt now requires
+"Pair N", plus a "NameA vs NameB" fallback) that jump to and auto-scroll
+to the pair (`g_pendingScrollPairIdx`). Classes grid is now roster rows.
+Shared dropdown component in `gui.cpp` (Classes sort, Flagged filter).
+Search box + Export live only in the Flagged Pairs fixed toolbar
+(`FLAGGED_TOOLBAR_HEIGHT`); search filters pairs. Sidebar is
+drag-resizable (240–400 design px, `g_sidebarW`). Minimum fonts raised
+(label/mono-small 14, mono 15). Content/sidebar repaint fully on resize.
 
 ---
 
@@ -189,6 +209,43 @@ GLOBALS` section header).
 
 ---
 
+## Secrets (2026-10-02)
+
+The Gemini API key and the Google Classroom OAuth token are stored in
+**Windows Credential Manager** (per Windows user, this PC only) via
+`secret_store.h/.cpp` — targets `CALSS/GeminiApiKey` and
+`CALSS/GoogleClassroomToken`. No plaintext `api_key.txt` /
+`calss_gc_token.json` anymore; on first launch the app imports any such
+file, verifies the stored copy, deletes the file and shows a notice
+(`migrateLegacySecretsEarly()` runs before any window is created — the
+sidebar's `aiKeyConfigured()` check would otherwise trigger the silent
+CLI-path import first). Each installation enters its own Gemini key via
+**File > AI Settings…** (`gui_ai_settings.cpp`, with a live "Test key");
+no key → "Include AI summary" unticked + disabled and "Set up AI…" links
+in the sidebar, Overview and per-pair AI notes. The Gemini key is sent
+in the `x-goog-api-key` header, not the URL.
+`calss_gc_embedded_credentials.json` (the app's OAuth client ID, not a
+personal secret) still ships as a file. `make_release.bat` builds
+`release/CALSS/` with only the exe + required assets.
+
+Known, not changed: the sync sheet goes straight to browser sign-in when
+the saved access token is expired (it doesn't try the refresh token
+first); per-student `similarity_report_*.html` and other outputs are
+still written relative to the working directory.
+
+## Batch report.html + CLI mode removed (2026-10-02)
+
+At the group's request, the batch `report.html` is gone: `htmlReport()`
+(and its `scoreColor`/`simColor` helpers) in `main.cpp`, View > "Open
+Latest Report in Browser" (`ID_VIEW_REPORT`, `onViewReport`), the
+post-analysis auto-open, `AppState::lastReport`,
+`AnalysisResults::reportPath`, and the report file/hash lines in the
+"ANALYSIS COMPLETE" audit entry. `runAnalysisPipeline(dataFolder, useAI)`
+no longer takes an output path. CLI mode is also removed: `main()` only
+launches the GUI. Still kept: the per-student "Generate Similarity
+Report" button (`similarity_report_<name>.html`) and the automatic
+`<data>/student_reports/report_<name>.html` (`generateStudentReports`).
+
 ## Build
 
 ```
@@ -197,7 +254,8 @@ x86_64-w64-mingw32-g++ -std=c++17 -O2 -static-libgcc -static-libstdc++ ...
 ```
 
 `compile.bat` uses an explicit file list — every new translation unit must
-be added manually.
+be added manually. (2026-10-02: added `src/gui_ai_settings.cpp`,
+`src/secret_store.cpp`, and `-ladvapi32` for Credential Manager.)
 
 ## Key files
 `gui.cpp`, `gui_sync_sheet.cpp`, `gui_assign_dialog.cpp`,

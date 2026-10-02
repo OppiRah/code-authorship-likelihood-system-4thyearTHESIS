@@ -62,10 +62,9 @@ struct CarouselStep {
 static const int HELP_IMG_FRAME_W_DESIGN = 584;
 static const int HELP_IMG_FRAME_H_DESIGN = 365;
 
-// Ring coordinates below are placeholder/illustrative — real captures
-// don't exist yet (per this session's status), so these are
-// reasonable guesses at roughly where each control sits within its
-// own screenshot, meant to be tuned once actual screenshots exist.
+// Ring coordinates below are measured from the shipped screenshots
+// (1600x1000 captures of the app at 100% scale): frame units =
+// screenshot px * 584 / 1600. Re-measure if a screenshot is retaken.
 // Nothing else about the carousel depends on these being exactly
 // right; that's the point of keeping this data-driven.
 static const CarouselStep HELP_STEPS[10] = {
@@ -74,68 +73,67 @@ static const CarouselStep HELP_STEPS[10] = {
       L"Point CALSS at student code three ways: a folder, individual "
       L"files, or a live Google Classroom sync.",
       L"calss_help_01_load_submissions.png",
-      { {250, 135, 99, 66, L"", false},
-        {356, 135, 99, 66, L"", false},
-        {461, 135, 99, 66, L"", false} },
+      { {256, 116, 78, 52, L"", false},
+        {347, 116, 78, 52, L"", false},
+        {437, 116, 78, 52, L"", false} },
       false },
     // 2 — Run the analysis
     { L"Run the analysis",
       L"Decide on an AI summary up front, then run. No mid-flow "
       L"prompts to interrupt you.",
       L"calss_help_02_run_analysis.png",
-      { {58, 312, 113, 11, L"", false},
-        {58, 331, 113, 17, L"", false} },
+      { {55, 330, 98, 24, L"", false} },
       false },
     // 3 — Overview: the big picture
     { L"Overview \u2014 the big picture",
       L"Every analysis opens here. Pairs flagged, high-similarity "
-      L"count, and max score \u2014 the three numbers worth a glance "
-      L"before anything else.",
+      L"count, max and average score \u2014 the numbers worth a "
+      L"glance before anything else.",
       L"calss_help_03_overview_summary.png",
-      { {352, 139, 434, 59, L"", false} },
+      { {347, 108, 453, 37, L"", false} },
       false },
     // 4 — Overview: jump straight to a finding
     { L"Overview \u2014 jump straight to a finding",
-      L"The AI briefing references specific pairs by name \u2014 click "
-      L"one to open it directly in Flagged Pairs.",
+      L"The AI summary names the pairs behind each finding \u2014 "
+      L"click a pair number to open it directly in Flagged Pairs.",
       L"calss_help_04_overview_ai_briefing.png",
-      { {347, 216, 22, 11, L"Click here", false} },
+      { {403, 234, 18, 10, L"Click here", false} },
       false },
     // 5 — Classes: every student's fingerprint
     { L"Classes \u2014 every student's fingerprint",
-      L"Each card carries a Style DNA strip \u2014 a glanceable "
+      L"Each student row carries a Style DNA strip \u2014 a glanceable "
       L"barcode of that student's coding habits.",
       L"calss_help_05_classes_grid.png",
-      { {162, 138, 38, 11, L"", false} },
+      { {267, 131, 52, 12, L"", false} },
       false },
     // 6 — Classes: a student's full profile
     { L"Classes \u2014 a student's full profile",
-      L"Open any card for the full picture, including every pair "
+      L"Open any student for the full picture, including every pair "
       L"that student has appeared in as a flagged match.",
       L"calss_help_06_classes_student_detail.png",
-      { {503, 194, 148, 89, L"", false} },
+      { {497, 203, 153, 150, L"", false} },
       false },
     // 7 — Flagged Pairs: what needs a look
     { L"Flagged Pairs \u2014 what needs a look",
-      L"Filter by severity to triage fast \u2014 High first, Moderate "
-      L"when you have time.",
+      L"Use the Filter menu to triage fast \u2014 exact duplicates and "
+      L"High first, Moderate when you have time.",
       L"calss_help_07_flagged_pairs_list.png",
-      { {183, 81, 99, 15, L"", false} },
+      { {534, 80, 71, 69, L"", false} },
       false },
     // 8 — Flagged Pairs: the side-by-side
     { L"Flagged Pairs \u2014 the side-by-side",
-      L"Expand any pair for the full comparison \u2014 the Deviations "
-      L"block puts the features that actually mismatched front and "
-      L"center.",
+      L"Expand any pair for the full comparison \u2014 both students "
+      L"mirrored across each feature, with every MISMATCH row "
+      L"highlighted.",
       L"calss_help_08_flagged_pairs_detail.png",
-      { {465, 263, 208, 91, L"", false} },
+      { {343, 229, 401, 62, L"", false} },
       false },
     // 9 — Generate a report
     { L"Generate a report",
-      L"Turn any finding into a document you can hand a student or "
-      L"attach to a case file.",
+      L"From a student's profile, Generate Similarity Report gives you "
+      L"a document to hand a student or attach to a case file.",
       L"calss_help_09_generate_report.png",
-      { {519, 27, 27, 11, L"", false} },
+      { {526, 53, 95, 12, L"", false} },
       false },
     // 10 — closing card (no screenshot — see the draw function)
     { L"You're set",

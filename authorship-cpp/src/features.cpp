@@ -335,6 +335,157 @@ FeatureResult extractFeatures(const std::string& filepath) {
     return result;
 }
 
+// ═════════════════════════════════════════════════════════════
+// PER-FUNCTION STYLE (display-only, see features.h)
+// ═════════════════════════════════════════════════════════════
+
+// Bracket placement, operator spacing, inline comment ratio, line length.
+const int BLOCK_STYLE_FEATURE[BLOCK_STYLE_COUNT] = {6, 8, 5, 9};
+
+// Blanks out string and char literal contents (keeping newlines and
+// length) so braces inside them don't disturb function detection.
+static std::string blankLiterals(const std::string& src) {
+    std::string out = src;
+    char quote = 0;
+    for (size_t i = 0; i < out.size(); ++i) {
+        char c = out[i];
+        if (quote) {
+            if (c == '\\' && i + 1 < out.size()) {
+                if (out[i + 1] != '\n') out[i + 1] = ' ';
+                out[i] = ' '; ++i;
+            } else if (c == quote || c == '\n') {
+                quote = 0;
+            } else {
+                out[i] = ' ';
+            }
+        } else if (c == '"' || c == '\'') {
+            quote = c;
+        }
+    }
+    return out;
+}
+
+static std::vector<std::string> splitLines(const std::string& s) {
+    std::vector<std::string> lines;
+    std::string cur;
+    for (char c : s) {
+        if (c == '\n') { lines.push_back(cur); cur.clear(); }
+        else cur += c;
+    }
+    if (!cur.empty()) lines.push_back(cur);
+    for (auto& ln : lines)
+        if (!ln.empty() && ln.back() == '\r') ln.pop_back();
+    return lines;
+}
+
+std::vector<BlockStyle> measureFunctionStyles(const std::string& source) {
+    std::vector<BlockStyle> blocks;
+    std::vector<std::string> lines = splitLines(source);
+
+    // Function spans from comment/literal-free text (stripComments
+    // keeps line breaks, blankLiterals keeps everything in place).
+    int bc, lc, ic;
+    std::vector<std::string> cleanLines =
+        splitLines(blankLiterals(stripComments(source, bc, lc, ic)));
+
+    int depth = 0, braceLine = -1;
+    for (int li = 0; li < (int)cleanLines.size(); ++li) {
+        for (char c : cleanLines[li]) {
+            if (c == '{') { if (depth == 0) braceLine = li; ++depth; }
+            else if (c == '}' && depth > 0) {
+                --depth;
+                if (depth != 0 || braceLine < 0) continue;
+
+                // Header: the brace's own line, or the previous non-blank
+                // line when the brace sits alone (next-line style).
+                int header = braceLine;
+                std::string before = cleanLines[braceLine].substr(
+                    0, cleanLines[braceLine].find('{'));
+                if (before.find_first_not_of(" \t") == std::string::npos) {
+                    for (int h = braceLine - 1; h >= 0; --h)
+                        if (cleanLines[h].find_first_not_of(" \t") != std::string::npos) {
+                            header = h; break;
+                        }
+                }
+                int start = header, end = li;
+                braceLine = -1;
+                // Functions only (header has a parameter list) — skips
+                // struct/enum bodies and array initializers.
+                if (cleanLines[header].find('(') == std::string::npos) continue;
+                if (end - start + 1 < BLOCK_STYLE_MIN_LINES) continue;
+                if (end >= (int)lines.size()) continue;
+
+                BlockStyle b{};
+                b.startLine = start;
+                b.endLine   = end;
+
+                // [6] Bracket placement — same test as extractFeatures.
+                int sameLine = 0, nextLine = 0;
+                for (int k = start; k <= end; ++k) {
+                    const std::string& ln = lines[k];
+                    size_t pPos = ln.rfind(')');
+                    size_t bPos = ln.find('{');
+                    if (pPos != std::string::npos && bPos != std::string::npos && bPos > pPos) {
+                        ++sameLine;
+                    } else if (pPos != std::string::npos && bPos == std::string::npos &&
+                               k + 1 < (int)lines.size()) {
+                        const std::string& next = lines[k + 1];
+                        size_t s = next.find_first_not_of(" \t");
+                        if (s != std::string::npos && next[s] == '{') ++nextLine;
+                    }
+                }
+                if (sameLine + nextLine > 0) {
+                    b.value[0] = safeDivide(sameLine, sameLine + nextLine);
+                    b.has[0] = true;
+                }
+
+                std::string blockSrc;
+                for (int k = start; k <= end; ++k) { blockSrc += lines[k]; blockSrc += '\n'; }
+                int bC, lC, iC;
+                std::string clean = stripComments(blockSrc, bC, lC, iC);
+
+                // [8] Operator spacing — same test as extractFeatures.
+                int spacedC = 0, compactC = 0;
+                for (size_t i = 1; i + 1 < clean.size(); ++i) {
+                    char prev = clean[i-1], cur = clean[i], next = clean[i+1];
+                    bool isOp = (cur == '=' || cur == '<' || cur == '>' ||
+                                 cur == '+' || cur == '-' || cur == '*' || cur == '/');
+                    if (!isOp) continue;
+                    if (isalnum((unsigned char)prev) && isalnum((unsigned char)next)) ++compactC;
+                    else if (prev == ' ' && next == ' ') ++spacedC;
+                }
+                if (spacedC + compactC >= 3) {
+                    b.value[1] = safeDivide(spacedC, spacedC + compactC);
+                    b.has[1] = true;
+                }
+
+                // [5] Inline comment ratio.
+                int totalC = bC + lC + iC;
+                if (totalC >= 2) {
+                    b.value[2] = safeDivide(iC, totalC);
+                    b.has[2] = true;
+                }
+
+                // [9] Average line length (non-blank, non-comment lines).
+                std::vector<double> lens;
+                for (int k = start; k <= end; ++k) {
+                    const std::string& ln = lines[k];
+                    size_t s = ln.find_first_not_of(" \t");
+                    if (s == std::string::npos || ln[s] == '/') continue;
+                    lens.push_back((double)ln.size());
+                }
+                if (lens.size() >= 3) {
+                    b.value[3] = safeMean(lens);
+                    b.has[3] = true;
+                }
+
+                blocks.push_back(b);
+            }
+        }
+    }
+    return blocks;
+}
+
 std::vector<double> normalizeVector(const std::vector<double>& raw) {
     std::vector<double> norm(FEATURE_COUNT, 0.0);
     for (int i = 0; i < FEATURE_COUNT; ++i) {

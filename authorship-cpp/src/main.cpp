@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────
 // main.cpp - Code Authorship Likelihood Scoring System
-// Generates an HTML report of similarity + authorship results
+// Analysis pipeline + entry point (launches the GUI)
 // ─────────────────────────────────────────────────────────────
 
 #include <iostream>
@@ -453,428 +453,7 @@ static std::map<std::string,std::string> loadFolder(
 }
 
 // ═════════════════════════════════════════════════════════════
-// HTML GENERATION
-// ═════════════════════════════════════════════════════════════
-
-static std::string scoreColor(double pct) {
-    if (pct >= 80) return "#4caf7d";
-    if (pct >= 60) return "#f0a500";
-    return "#e05c5c";
-}
-
-static std::string simColor(double pct) {
-    if (pct >= 80) return "#e05c5c";
-    if (pct >= 60) return "#f0a500";
-    return "#4caf7d";
-}
-
-static std::string htmlReport(
-    const std::vector<PairResult>& allPairs,
-    const SummaryStats& stats,
-    const std::vector<PairResult>& flagged,
-    AuthorshipScorer& scorer,
-    const std::string& dataFolder,
-    const AISummary& aiSummary)
-{
-    std::ostringstream h;
-    time_t now = time(nullptr);
-    char timebuf[64];
-    strftime(timebuf, sizeof(timebuf), "%B %d, %Y  %H:%M", localtime(&now));
-
-    h << R"(<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Code Authorship Likelihood Report</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Segoe UI',Arial,sans-serif;background:#0f0f1a;color:#e0e0f0;min-height:100vh}
-  .header{background:linear-gradient(135deg,#7c6af7,#4c5af0);padding:32px 40px;border-bottom:3px solid #5a4fd0}
-  .header h1{font-size:1.7rem;font-weight:700;letter-spacing:.5px}
-  .header p{opacity:.85;margin-top:6px;font-size:.95rem}
-  .meta{display:flex;gap:16px;margin-top:14px;flex-wrap:wrap}
-  .meta span{background:rgba(255,255,255,.15);padding:4px 12px;border-radius:20px;font-size:.82rem}
-  .container{max-width:1100px;margin:0 auto;padding:32px 20px}
-  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:32px}
-  .stat-card{background:#1e1e2e;border:1px solid #2a2a4a;border-radius:10px;padding:20px;text-align:center}
-  .stat-card .val{font-size:2rem;font-weight:700}
-  .stat-card .lbl{font-size:.78rem;color:#9090b0;margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
-  .section-title{font-size:1.1rem;font-weight:600;color:#a0a0e0;margin:28px 0 14px;padding-bottom:8px;border-bottom:1px solid #2a2a4a}
-  .pair-card{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:10px;margin-bottom:16px;overflow:hidden}
-  .pair-header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;background:#1e1e3e;flex-wrap:wrap;gap:8px}
-  .pair-names{font-weight:600;font-size:1rem}
-  .pair-badge{padding:4px 14px;border-radius:20px;font-size:.82rem;font-weight:600;color:#fff}
-  .score-row{display:flex;gap:16px;padding:10px 20px;background:#161626;flex-wrap:wrap}
-  .score-item{font-size:.82rem;color:#9090b0}
-  .score-item span{font-weight:600;color:#c0c0e0}
-  .pair-body{padding:16px 20px}
-  .students-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  @media(max-width:600px){.students-grid{grid-template-columns:1fr}}
-  .student-card{background:#12121f;border:1px solid #2a2a4a;border-radius:8px;padding:14px}
-  .student-name{font-weight:600;margin-bottom:6px;font-size:.95rem}
-  .auth-score{font-size:1.5rem;font-weight:700;margin-bottom:4px}
-  .auth-label{font-size:.78rem;color:#9090b0;margin-bottom:10px}
-  .progress-bg{background:#0a0a18;border-radius:4px;height:8px;margin-bottom:12px}
-  .progress-fill{height:8px;border-radius:4px;transition:width .3s}
-  .style-list{font-size:.78rem;line-height:1.8}
-  .match{color:#4caf7d}
-  .mismatch{color:#e05c5c}
-  .verdict-box{background:#0e0e1c;border:1px solid #3a2a6a;border-radius:8px;padding:14px 18px;margin-top:14px}
-  .verdict-title{font-size:.78rem;color:#9090b0;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
-  .verdict-row{display:flex;gap:10px;align-items:center;margin-bottom:4px;font-size:.88rem}
-  .verdict-row .vl{font-weight:600}
-  .orig{color:#4caf7d}
-  .copy{color:#e05c5c}
-  .note{font-size:.75rem;color:#6060a0;margin-top:8px;font-style:italic}
-  .profile-section{margin-bottom:32px}
-  .profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-  .profile-card{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:8px;padding:14px}
-  .profile-card h4{font-size:.9rem;color:#a0a0e0;margin-bottom:8px}
-  .profile-card .sub-count{font-size:.78rem;color:#6060a0;margin-bottom:8px}
-  .style-note{font-size:.78rem;color:#c0c0d0;padding:3px 0;border-bottom:1px solid #1e1e3e}
-  .style-note:last-child{border-bottom:none}
-  .tag{display:inline-block;background:#2a2a4a;border-radius:4px;padding:1px 6px;font-size:.7rem;color:#8080b0;margin-right:4px}
-  .no-flag{color:#4caf7d;text-align:center;padding:20px;background:#121f12;border:1px solid #2a4a2a;border-radius:8px}
-  footer{text-align:center;padding:24px;color:#404060;font-size:.78rem;border-top:1px solid #1e1e2e;margin-top:32px}
-</style>
-</head>
-<body>
-<div class="header">
-  <h1>&#128196; Code Authorship Likelihood Report</h1>
-  <p>An AI-Assisted Code Authorship Likelihood Scoring System Using Student-Specific Programming Style Fingerprinting</p>
-  <div class="meta">
-    <span>&#128197; )"; h << timebuf; h << R"(</span>
-    <span>&#128193; )"; h << dataFolder; h << R"(</span>
-    <span>University of Luzon &mdash; College of Computer Studies</span>
-  </div>
-</div>
-<div class="container">)";
-
-    // ── AI Generated Summary ──────────────────────────────────
-    if (aiSummary.success && !aiSummary.text.empty()) {
-        h << "<div style='background:linear-gradient(135deg,#1e1b3a,#2a1e4a);"
-          << "border:1px solid #5a4fd0;border-radius:10px;padding:20px 24px;"
-          << "margin-bottom:24px;position:relative'>"
-          << "<div style='display:flex;align-items:center;gap:8px;margin-bottom:12px'>"
-          << "<span style='font-size:1.3rem'>&#129302;</span>"
-          << "<span style='font-size:.85rem;font-weight:600;color:#a0a0e0;"
-          << "text-transform:uppercase;letter-spacing:1px'>"
-          << "AI-Generated Instructor Summary</span>"
-          << "<span style='font-size:.7rem;color:#7070a0;margin-left:auto;"
-          << "padding:3px 10px;background:#0a0a18;border-radius:12px'>"
-          << "Powered by Gemini</span>"
-          << "</div>"
-          << "<div style='font-size:.9rem;line-height:1.7;color:#d0d0e8;"
-          << "white-space:pre-wrap'>"
-          << aiSummary.text
-          << "</div>"
-          << "<div style='margin-top:14px;padding-top:12px;border-top:1px solid #3a2a6a;"
-          << "font-size:.72rem;color:#6060a0;font-style:italic'>"
-          << "This summary was generated by an AI model based on the statistical "
-          << "analysis below. All academic integrity determinations rest with the instructor."
-          << "</div>"
-          << "</div>";
-    } else if (aiSummary.skipped) {
-        h << "<div style='background:#1a1a2e;border:1px dashed #3a3a5a;"
-          << "border-radius:10px;padding:14px 20px;margin-bottom:24px;"
-          << "font-size:.82rem;color:#7070a0;text-align:center'>"
-          << "&#9432; AI summary unavailable: " << aiSummary.error
-          << "</div>";
-    } else if (!aiSummary.success && !aiSummary.error.empty()) {
-        h << "<div style='background:#1a1a2e;border:1px dashed #5a3a3a;"
-          << "border-radius:10px;padding:14px 20px;margin-bottom:24px;"
-          << "font-size:.82rem;color:#a07070'>"
-          << "&#9888; AI summary generation failed: " << aiSummary.error
-          << "</div>";
-    }
-
-    // ── Summary Stats ─────────────────────────────────────────
-    h << R"(<div class="stats-grid">)";
-    auto statCard = [&](const std::string& val, const std::string& lbl,
-                         const std::string& color) {
-        h << "<div class='stat-card'>"
-          << "<div class='val' style='color:" << color << "'>" << val << "</div>"
-          << "<div class='lbl'>" << lbl << "</div></div>";
-    };
-    statCard(std::to_string(stats.totalPairs),   "Total Pairs",   "#a0a0e0");
-    statCard(std::to_string(stats.flaggedCount),  "Flagged",       "#e05c5c");
-    statCard(std::to_string(stats.exactCount),    "Exact Dupes",   "#e05c5c");
-    statCard(std::to_string(stats.highCount),     "High Sim",      "#f0a500");
-
-    std::ostringstream avgss, maxss;
-    avgss.precision(1); avgss << std::fixed << stats.avgScore;
-    maxss.precision(1); maxss << std::fixed << stats.maxScore;
-    statCard(avgss.str() + "%", "Avg Score",     "#a0a0e0");
-    statCard(maxss.str() + "%", "Max Score",     "#e05c5c");
-    h << "</div>";
-
-    // ── Student Profiles ──────────────────────────────────────
-    h << "<div class='section-title'>&#128100; Student Style Profiles</div>";
-    h << "<div class='profile-grid'>";
-    for (const auto& name : scorer.readyStudents()) {
-        const StudentProfile* p = scorer.getProfile(name);
-        if (!p) continue;
-        h << "<div class='profile-card'>"
-          << "<h4>" << name << "</h4>"
-          << "<div class='sub-count'>"
-          << p->submissions.size() << " prior submission(s) used</div>";
-        for (const auto& note : p->styleNotes) {
-            h << "<div class='style-note'>"
-              << "<span class='tag'>" << note.feature << "</span>"
-              << note.observation << "</div>";
-        }
-        h << "</div>";
-    }
-    h << "</div>";
-
-    // ── Flagged Pairs ─────────────────────────────────────────
-    h << "<div class='section-title'>&#128680; Flagged Pairs &mdash; Authorship Analysis</div>";
-
-    if (flagged.empty()) {
-        h << "<div class='no-flag'>&#10003; No flagged pairs. All submissions appear unique.</div>";
-    } else {
-        for (const auto& pair : flagged) {
-            std::string sA = extractStudentName(pair.studentA);
-            std::string sB = extractStudentName(pair.studentB);
-            PairVerdict verdict = scorer.scorePair(
-                sA, pair.pathA, sB, pair.pathB);
-
-            std::ostringstream css;
-            css.precision(1); css << std::fixed << pair.combinedScore;
-
-            h << "<div class='pair-card'>"
-              << "<div class='pair-header'>"
-              << "<div class='pair-names'>&#128196; "
-              << pair.studentA << " &harr; " << pair.studentB << "</div>"
-              << "<span class='pair-badge' style='background:"
-              << simColor(pair.combinedScore) << "'>"
-              << css.str() << "% &mdash; " << pair.label << "</span>"
-              << "</div>"
-              << "<div class='score-row'>"
-              << "<div class='score-item'>Token: <span>";
-
-            std::ostringstream ts, ss2;
-            ts.precision(1); ts << std::fixed << pair.tokenScore;
-            ss2.precision(1); ss2 << std::fixed << pair.styleScore;
-            h << ts.str() << "%</span></div>"
-              << "<div class='score-item'>Style: <span>"
-              << ss2.str() << "%</span></div>"
-              << "<div class='score-item'>Combined: <span>"
-              << css.str() << "%</span></div>"
-              << "</div><div class='pair-body'>"
-              << "<div class='students-grid'>";
-
-            // Student cards
-            auto studentCard = [&](const AuthorshipResult& r,
-                                    const std::string& filename) {
-                std::string col = scoreColor(r.scorePct);
-                std::ostringstream sp;
-                sp.precision(1); sp << std::fixed << r.scorePct;
-                int fillW = (int)r.scorePct;
-
-                h << "<div class='student-card'>"
-                  << "<div class='student-name'>" << filename << "</div>"
-                  << "<div class='auth-score' style='color:" << col << "'>"
-                  << sp.str() << "%</div>"
-                  << "<div class='auth-label'>" << r.label << "</div>"
-                  << "<div class='progress-bg'><div class='progress-fill' style='width:"
-                  << fillW << "%;background:" << col << "'></div></div>";
-
-                // Profile Reliability Indicator
-                // Based on profile size - matches Chapter 2 (Brocardo et al. 2014)
-                std::string relLabel, relColor, relNote;
-                if (r.profileSize >= 3) {
-                    relLabel = "High";
-                    relColor = "#4caf7d";
-                    relNote  = "";
-                } else if (r.profileSize == 2) {
-                    relLabel = "Moderate";
-                    relColor = "#f0a500";
-                    relNote  = "Score reliability may be limited by small profile size.";
-                } else {
-                    relLabel = "Low";
-                    relColor = "#e05c5c";
-                    relNote  = "Score may be less reliable due to limited profile data. "
-                               "Additional submissions recommended for higher confidence.";
-                }
-
-                h << "<div style='margin-top:8px;padding:8px 10px;background:#0a0a18;"
-                  << "border-left:3px solid " << relColor << ";border-radius:4px;"
-                  << "font-size:.75rem'>"
-                  << "<div style='color:#9090b0'>"
-                  << "Profile Reliability: "
-                  << "<span style='color:" << relColor << ";font-weight:600'>"
-                  << relLabel << "</span>"
-                  << " <span style='color:#6060a0'>(" << r.profileSize
-                  << " prior submission" << (r.profileSize == 1 ? "" : "s") << ")</span>"
-                  << "</div>";
-                if (!relNote.empty()) {
-                    h << "<div style='color:#7070a0;font-style:italic;margin-top:4px;"
-                      << "font-size:.7rem'>" << relNote << "</div>";
-                }
-                h << "</div>";
-
-                h << "<div class='style-list'>";
-
-                // Categorize features into Lexical, Layout, Syntactic
-                // based on what each feature measures (matches Chapter 2)
-                std::vector<std::string> lexical, layout, syntactic;
-                std::string summary;
-
-                for (const auto& note : r.styleMatch) {
-                    if (note.find("matched /") != std::string::npos) {
-                        summary = note;
-                        continue;
-                    }
-                    // Categorize by feature name in the note
-                    if (note.find("Variable name length") != std::string::npos ||
-                        note.find("Single-letter variables") != std::string::npos ||
-                        note.find("camelCase naming") != std::string::npos) {
-                        lexical.push_back(note);
-                    }
-                    else if (note.find("Comment frequency") != std::string::npos ||
-                             note.find("Inline comment style") != std::string::npos ||
-                             note.find("Bracket placement") != std::string::npos ||
-                             note.find("Blank line usage") != std::string::npos) {
-                        layout.push_back(note);
-                    }
-                    else if (note.find("Loop preference") != std::string::npos ||
-                             note.find("Operator spacing") != std::string::npos) {
-                        syntactic.push_back(note);
-                    }
-                }
-
-                auto renderGroup = [&](const std::string& title,
-                                        const std::vector<std::string>& items) {
-                    if (items.empty()) return;
-                    h << "<div style='margin-top:8px;font-size:.7rem;color:#7070a0;"
-                      << "text-transform:uppercase;letter-spacing:.5px;font-weight:600;"
-                      << "padding-bottom:3px;border-bottom:1px solid #2a2a4a'>"
-                      << title << "</div>";
-                    for (const auto& note : items) {
-                        bool isMatch = (note.find("[MATCH]") != std::string::npos);
-                        h << "<div class='" << (isMatch ? "match" : "mismatch") << "'>"
-                          << (isMatch ? "&#10003;" : "&#10007;")
-                          << note.substr(note.find(']') + 1)
-                          << "</div>";
-                    }
-                };
-
-                renderGroup("Lexical Features",   lexical);
-                renderGroup("Layout Features",    layout);
-                renderGroup("Syntactic Features", syntactic);
-
-                if (!summary.empty()) {
-                    h << "<div style='color:#6060a0;margin-top:8px;font-size:.75rem;"
-                      << "padding-top:6px;border-top:1px solid #1e1e3e'>"
-                      << summary << "</div>";
-                }
-
-                h << "</div></div>";
-            };
-
-            if (verdict.success) {
-                studentCard(verdict.resultA, pair.studentA);
-                studentCard(verdict.resultB, pair.studentB);
-            }
-
-            h << "</div>";
-
-            // Comparative Authorship Analysis (no verdict)
-            if (verdict.success) {
-                std::ostringstream spA, spB;
-                spA.precision(1); spA << std::fixed << verdict.resultA.scorePct;
-                spB.precision(1); spB << std::fixed << verdict.resultB.scorePct;
-
-                double diff = std::abs(verdict.resultA.scorePct -
-                                        verdict.resultB.scorePct);
-                std::string interpretation;
-                if (diff < 5.0) {
-                    interpretation =
-                        "Both submissions show comparable style consistency with their "
-                        "respective profiles. No significant authorship inconsistency "
-                        "detected in either submission.";
-                } else {
-                    const AuthorshipResult& lower =
-                        (verdict.resultA.scorePct < verdict.resultB.scorePct)
-                        ? verdict.resultA : verdict.resultB;
-                    interpretation =
-                        "The submission by " + lower.student +
-                        " shows substantially lower style consistency with their "
-                        "established profile. The instructor is advised to examine "
-                        "this submission for potential authorship inconsistency.";
-                }
-
-                h << "<div class='verdict-box'>"
-                  << "<div class='verdict-title'>&#128202; Comparative Authorship Analysis</div>"
-                  << "<div class='verdict-row'>"
-                  << "<span style='color:#9090b0'>Submission A &mdash; " << verdict.studentA << ":</span>"
-                  << "<span class='vl' style='color:" << scoreColor(verdict.resultA.scorePct)
-                  << "'>&nbsp;" << spA.str() << "% (" << verdict.resultA.label << ")</span></div>"
-                  << "<div class='verdict-row'>"
-                  << "<span style='color:#9090b0'>Submission B &mdash; " << verdict.studentB << ":</span>"
-                  << "<span class='vl' style='color:" << scoreColor(verdict.resultB.scorePct)
-                  << "'>&nbsp;" << spB.str() << "% (" << verdict.resultB.label << ")</span></div>"
-                  << "<div style='margin-top:10px;padding:10px;background:#0a0a18;border-radius:6px;font-size:.82rem;color:#c0c0d0;line-height:1.5'>"
-                  << "<strong style='color:#a0a0e0'>Interpretation:</strong> " << interpretation
-                  << "</div>"
-                  << "<div class='note'>This report provides statistical evidence only. "
-                  << "All academic integrity determinations rest with the instructor.</div>"
-                  << "</div>";
-            }
-            h << "</div></div>";
-        }
-    }
-
-    // ── All Pairs Table ───────────────────────────────────────
-    h << "<div class='section-title'>&#128202; All Pair Scores</div>";
-    h << "<table style='width:100%;border-collapse:collapse;font-size:.82rem'>"
-      << "<tr style='background:#1e1e3e;color:#9090b0'>"
-      << "<th style='padding:10px;text-align:left'>Pair</th>"
-      << "<th style='padding:10px'>Token</th>"
-      << "<th style='padding:10px'>Style</th>"
-      << "<th style='padding:10px'>Combined</th>"
-      << "<th style='padding:10px'>Result</th></tr>";
-
-    for (const auto& r : allPairs) {
-        if (!r.success) continue;
-        std::string bg = r.flagged ? "#1a0a0a" : "#12121f";
-        std::ostringstream ts, ss2, cs;
-        ts.precision(1); ts << std::fixed << r.tokenScore;
-        ss2.precision(1); ss2 << std::fixed << r.styleScore;
-        cs.precision(1); cs << std::fixed << r.combinedScore;
-
-        h << "<tr style='background:" << bg << ";border-bottom:1px solid #1e1e2e'>"
-          << "<td style='padding:9px 10px'>"
-          << (r.flagged ? "&#128680; " : "")
-          << r.studentA << " &harr; " << r.studentB << "</td>"
-          << "<td style='padding:9px;text-align:center'>" << ts.str() << "%</td>"
-          << "<td style='padding:9px;text-align:center'>" << ss2.str() << "%</td>"
-          << "<td style='padding:9px;text-align:center;font-weight:600;color:"
-          << simColor(r.combinedScore) << "'>" << cs.str() << "%</td>"
-          << "<td style='padding:9px;text-align:center;color:"
-          << simColor(r.combinedScore) << "'>" << r.label << "</td></tr>";
-    }
-    h << "</table>";
-
-    h << R"(</div>
-<footer>
-  Code Authorship Likelihood Scoring System &mdash; CS Thesis Prototype<br>
-  University of Luzon, College of Computer Studies &mdash; Academic Integrity Support Tool<br>
-  <span style="color:#303050">This system provides statistical evidence only. All final judgments rest with the instructor.</span>
-</footer>
-</body></html>)";
-
-    return h.str();
-}
-
-// ═════════════════════════════════════════════════════════════
-// MAIN
-// ═════════════════════════════════════════════════════════════
-
-// ═════════════════════════════════════════════════════════════
-// ANALYSIS PIPELINE — Callable function for both CLI and GUI
+// ANALYSIS PIPELINE — called by the GUI's analysis thread
 // Returns AnalysisResults struct with everything needed for display
 // ═════════════════════════════════════════════════════════════
 
@@ -1931,8 +1510,7 @@ Computer Studies.
 // results_data.h (shared with gui.cpp). This is purely a reporting
 // hook — it does not change what gets computed, in what order, or
 // with what weights. The GUI sets a callback before calling
-// runAnalysisPipeline(); CLI mode never sets one, so nullptr checks
-// make this fully optional and backward compatible.
+// runAnalysisPipeline(); nullptr checks keep it optional.
 // ─────────────────────────────────────────────────────────────
 static AnalysisProgressCallback g_analysisProgressCb = nullptr;
 
@@ -1942,11 +1520,10 @@ void setAnalysisProgressCallback(AnalysisProgressCallback cb) {
 
 static bool reportProgress(AnalysisPhase phase, int current, int total) {
     if (g_analysisProgressCb) return g_analysisProgressCb(phase, current, total);
-    return true; // no callback registered (CLI mode) — never cancel
+    return true; // no callback registered — never cancel
 }
 
 std::string runAnalysisPipeline(const std::string& dataFolder,
-                                  const std::string& outputFile,
                                   bool useAI)
 {
     // Reset global results
@@ -2029,6 +1606,11 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
         summary.name = name;
         summary.submissionCount = (int)p->submissions.size();
         summary.featureVector = p->profileVector;  // for Style DNA strip
+        for (const auto& sub : p->submissions) {    // for View source style-change highlight
+            if (!sub.success || sub.raw.size() < FEATURE_COUNT) continue;
+            summary.submissionPaths.push_back(sub.filepath);
+            summary.submissionRaw.push_back(sub.raw);
+        }
         for (const auto& sn : p->styleNotes) {
             std::string note = "[" + sn.feature + "] " + sn.observation;
             summary.styleNotes.push_back(note);
@@ -2114,7 +1696,6 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
     g_analysisResults.averageScore    = stats.avgScore;
     g_analysisResults.maxScore        = stats.maxScore;
     g_analysisResults.dataFolder      = dataFolder;
-    g_analysisResults.reportPath      = outputFile;
 
     // Build flagged pair displays
     for (const auto& pair : flagged) {
@@ -2223,8 +1804,7 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
     g_analysisResults.aiSummaryError   = aiSummary.error;
 
     // Tiered AI outputs (restructure) — additive alongside the legacy
-    // aiSummary block above, which is left untouched and still feeds
-    // htmlReport() below exactly as it did before this change (approved:
+    // aiSummary block above, which feeds the Overview AI summary (approved:
     // run both, revisit the extra API cost later if it becomes a problem).
     // Gated by the same pre-run useAI toggle; no separate mid-flow prompt.
     if (useAI && !flagged.empty()) {
@@ -2247,17 +1827,6 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
     strftime(timebuf, sizeof(timebuf), "%B %d, %Y  %H:%M", localtime(&now));
     g_analysisResults.timestamp = timebuf;
 
-    // Generate HTML
-    std::string html = htmlReport(allPairs, stats, flagged,
-                                   scorer, dataFolder, aiSummary);
-
-    std::ofstream out(outputFile);
-    if (!out.is_open()) {
-        return "ERROR: Cannot write to " + outputFile;
-    }
-    out << html;
-    out.close();
-
     // Generate per-student summary reports for severe flagged pairs (≥90%)
     generateStudentReports(flagged, scorer, dataFolder);
 
@@ -2269,219 +1838,6 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
     return resultMsg.str();
 }
 
-int main(int argc, char* argv[]) {
-    // If no arguments given, launch the GUI
-    // If "data" folder path given as first argument, run CLI mode (legacy)
-#ifdef _WIN32
-    if (argc < 2) {
-        // GUI mode
-        return runGUI(GetModuleHandle(nullptr));
-    }
-#endif
-
-    // CLI mode (kept for testing and scripting)
-    std::string dataFolder  = "data";
-    std::string outputFile  = "report.html";
-    if (argc >= 2) dataFolder = argv[1];
-    if (argc >= 3) outputFile = argv[2];
-
-    std::cout << "Code Authorship Likelihood Scoring System\n";
-    std::cout << "==========================================\n";
-    std::cout << "Loading from: " << dataFolder << "\n";
-
-    auto allFiles = loadFolder(dataFolder);
-    if (allFiles.empty()) {
-        std::cerr << "ERROR: No .c files found in: " << dataFolder << "\n";
-        std::cerr << "Usage: authorship.exe [data_folder] [output.html]\n";
-        return 1;
-    }
-    std::cout << "Found " << allFiles.size() << " file(s)\n";
-
-    // Language validation — same check as the GUI pipeline. See
-    // checkLanguage() definition above for full rationale.
-    {
-        std::vector<std::string> toRemove;
-        for (const auto& kv : allFiles) {
-            LanguageCheck check = checkLanguage(kv.second);
-            if (!check.isPlausibleC) {
-                std::cout << "WARNING: " << kv.first
-                          << " does not look like C (suspected: "
-                          << check.suspectedLanguage
-                          << ") - excluded from analysis\n";
-                toRemove.push_back(kv.first);
-            }
-        }
-        for (const auto& key : toRemove) allFiles.erase(key);
-    }
-
-    // Build profiles
-    AuthorshipScorer scorer(3);
-    std::map<std::string,bool> hasProfile;
-
-    for (const auto& kv : allFiles) {
-        if (!isExamFile(kv.first)) {
-            std::string student = extractStudentName(kv.first);
-            if (scorer.loadSubmission(student, kv.second))
-                hasProfile[student] = true;
-        }
-    }
-    for (const auto& kv : allFiles) {
-        std::string student = extractStudentName(kv.first);
-        if (!hasProfile.count(student))
-            if (scorer.loadSubmission(student, kv.second))
-                hasProfile[student] = true;
-    }
-
-    std::cout << "Profiles built for: ";
-    for (const auto& n : scorer.readyStudents()) std::cout << n << " ";
-    std::cout << "\n";
-
-    // Run analysis
-    // Only compare exam files against each other
-    // Activity files are profile sources only — never compared
-    std::cout << "Running similarity analysis...\n";
-
-    std::map<std::string,std::string> examOnly;
-    for (const auto& kv : allFiles)
-        if (isExamFile(kv.first))
-            examOnly[kv.first] = kv.second;
-
-    // If no exam files found, fall back to all files
-    auto& compareFiles = examOnly.empty() ? allFiles : examOnly;
-
-    // Run pairwise comparison — grouped by grading period, skipping
-    // same-student pairs.
-    //
-    // Files are grouped by extractPeriod() BEFORE comparison so that,
-    // for example, a Midterm Exam is only ever compared against other
-    // Midterm Exams — never against a Semifinal or Final Exam, which
-    // cover entirely different material. Comparing across periods would
-    // produce statistically meaningless similarity noise (inflating
-    // "Total Pairs Analyzed" and dragging down "Average Score" with
-    // comparisons that were never meant to be equivalent).
-    //
-    // Files with no period signal (extractPeriod() returns "general" —
-    // manually imported files, or datasets that already achieve period
-    // separation via folder organization rather than filename encoding)
-    // all fall into one group together, preserving prior behavior for
-    // such datasets exactly as before this change.
-    std::vector<PairResult> allPairs;
-    {
-        std::map<std::string, std::vector<std::string>> byPeriod;
-        for (const auto& kv : compareFiles) {
-            byPeriod[extractPeriod(kv.first)].push_back(kv.first);
-        }
-
-        // Note: no progress/cancellation here — this is the legacy CLI
-        // entry point (kept for scripting/testing), which never
-        // registers a callback, so reportProgress() would be a
-        // guaranteed-true no-op anyway. Cancellation only makes sense
-        // where main() can actually return the resulting std::string,
-        // which is runAnalysisPipeline() above, not this int-returning
-        // CLI path.
-        for (auto& periodGroup : byPeriod) {
-            auto& names = periodGroup.second;
-            for (size_t i = 0; i < names.size(); ++i) {
-                for (size_t j = i + 1; j < names.size(); ++j) {
-                    const std::string& nA = names[i];
-                    const std::string& nB = names[j];
-                    // Skip if both files belong to the same student
-                    if (extractStudentName(nA) == extractStudentName(nB))
-                        continue;
-                    PairResult r = analyzePair(
-                        nA, compareFiles.at(nA),
-                        nB, compareFiles.at(nB));
-                    allPairs.push_back(r);
-                }
-            }
-        }
-
-        // Sort: flagged first, then by score descending
-        std::sort(allPairs.begin(), allPairs.end(),
-            [](const PairResult& a, const PairResult& b){
-                if (a.flagged != b.flagged) return a.flagged > b.flagged;
-                return a.combinedScore > b.combinedScore;
-            });
-    }
-
-    auto stats   = summaryStats(allPairs);
-    auto flagged = flaggedPairs(allPairs);
-
-    std::cout << "Total pairs : " << stats.totalPairs   << "\n";
-    std::cout << "Flagged     : " << stats.flaggedCount  << "\n";
-    std::cout << "Max score   : " << stats.maxScore      << "%\n";
-
-    // Ask user if they want AI summary (opt-in)
-    AISummary aiSummary;
-    aiSummary.success = false;
-    aiSummary.skipped = false;
-
-    // Only prompt if there are flagged pairs to summarize
-    if (flagged.empty()) {
-        aiSummary.skipped = true;
-        aiSummary.error = "No flagged pairs to summarize.";
-        std::cout << "\nNo flagged pairs found. Skipping AI summary.\n";
-    } else {
-        // Check if API key exists before asking
-        std::string keyCheck = loadApiKey();
-        if (keyCheck.empty()) {
-            aiSummary.skipped = true;
-            aiSummary.error = "No API key configured. AI summary unavailable.";
-            std::cout << "\nNo API key configured. Skipping AI summary.\n";
-            std::cout << "To enable: create api_key.txt with your Gemini API key.\n";
-        } else {
-            std::cout << "\n============================================================\n";
-            std::cout << "Generate AI-powered instructor summary? (y/n): ";
-            std::string choice;
-            std::getline(std::cin, choice);
-
-            // Trim whitespace and lowercase the first char
-            while (!choice.empty() && (choice.front() == ' ' || choice.front() == '\t'))
-                choice.erase(choice.begin());
-
-            char first = choice.empty() ? 'n' : (char)tolower((unsigned char)choice[0]);
-
-            if (first == 'y') {
-                std::cout << "  Calling Gemini API...\n";
-                aiSummary = generateAISummary(flagged, scorer);
-                if (aiSummary.success) {
-                    std::cout << "  AI summary generated successfully.\n";
-                } else if (aiSummary.skipped) {
-                    std::cout << "  AI summary skipped: " << aiSummary.error << "\n";
-                } else {
-                    std::cout << "  AI summary failed: " << aiSummary.error << "\n";
-                }
-            } else {
-                aiSummary.skipped = true;
-                aiSummary.error = "AI summary not requested for this run.";
-                std::cout << "  AI summary skipped by user.\n";
-            }
-        }
-    }
-
-    // Generate HTML
-    std::string html = htmlReport(allPairs, stats, flagged,
-                                   scorer, dataFolder, aiSummary);
-
-    std::ofstream out(outputFile);
-    if (!out.is_open()) {
-        std::cerr << "ERROR: Cannot write to " << outputFile << "\n";
-        return 1;
-    }
-    out << html;
-    out.close();
-
-    // Generate per-student summary reports
-    generateStudentReports(flagged, scorer, dataFolder);
-
-    std::cout << "\nReport saved to: " << outputFile << "\n";
-    std::cout << "Open it in your browser to view results.\n";
-
-#ifdef _WIN32
-    // Auto-open in browser on Windows
-    ShellExecuteA(nullptr, "open", outputFile.c_str(),
-                  nullptr, nullptr, SW_SHOWNORMAL);
-#endif
-
-    return 0;
+int main() {
+    return runGUI(GetModuleHandle(nullptr));
 }

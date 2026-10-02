@@ -43,10 +43,11 @@
 // syntax check.
 // ─────────────────────────────────────────────────────────────
 
-// Must be defined before any Windows header is pulled in. The sync
-// sheet's checkbox tree (SysTreeView32 + TVS_CHECKBOXES) needs
-// TVN_ITEMCHANGEDW, which requires comctl32 v6 semantics — targeting
-// anything older silently drops that notification.
+// Must be defined before any Windows header is pulled in. Note: this
+// only makes newer commctrl.h declarations compile — the app has no
+// manifest, so comctl32 v5 is what actually loads at runtime and
+// v6-only notifications (e.g. TVN_ITEMCHANGED) are never sent. The
+// sync sheet's checkbox tree detects toggles itself for that reason.
 // Must be defined before any Windows header loads. Without this, ALL
 // commctrl.h macros (TreeView_InsertItem, TreeView_SetCheckState,
 // etc.) silently resolve to their ANSI (*_A) message variants — even
@@ -129,8 +130,8 @@ using namespace Gdiplus;
 #define ID_FILE_OPEN_FOLDER     1001
 #define ID_FILE_IMPORT          1002
 #define ID_FILE_GCLASSROOM      1003
+#define ID_FILE_AI_SETTINGS     1004
 #define ID_FILE_EXIT            1010
-#define ID_VIEW_REPORT          2001
 #define ID_VIEW_PROFILES        2002
 #define ID_VIEW_AUDIT_LOG       2003
 #define ID_HELP_ABOUT           3001
@@ -146,6 +147,7 @@ using namespace Gdiplus;
 #define WM_SYNC_COURSESDONE     (WM_USER + 4)
 #define WM_SYNC_PROGRESS        (WM_USER + 5)
 #define WM_SYNC_DONE            (WM_USER + 6)
+#define WM_SYNC_TREE_TOGGLED    (WM_USER + 7) // lParam = HTREEITEM whose checkbox changed
 #define TOAST_DURATION_MS 4000
 #define TOAST_MAX_STACK   3
 #define TIMER_TOAST 1007
@@ -273,7 +275,6 @@ struct AppState {
     bool         analysisRunning;
     bool         analysisComplete;
     std::wstring progressMsg;
-    std::wstring lastReport;
 };
 
 // ── In-app notification/confirmation system (compliance fix item 5)
@@ -325,9 +326,18 @@ struct SourceViewSide {
     bool missing   = false;
     bool truncated = false;
     int  scrollY   = 0;
-    std::vector<int>  partner;   // per line: matched line index in the other file, or -1
-    std::vector<char> highlight; // per line: 1 = draw with the match highlight
-    std::vector<int>  runStarts; // first line of each matched run (next/prev match jumps)
+    // Gold match highlight (computeSourceLineMatches, gui.cpp): lines
+    // that also appear in the other file of the pair.
+    std::vector<int>  partner;               // per line: matched line index in the other file, or -1
+    std::vector<char> matchHighlight;        // per line: 1 = draw with the gold match highlight
+    std::vector<int>  matchRunStarts;        // first line of each matched run (next/prev jumps)
+    // Red style-change highlight (computeStyleChanges, gui.cpp): functions
+    // that break this student's own established pattern.
+    std::vector<char> highlight;             // per line: 1 = inside a flagged function
+    std::vector<int>  runStarts;             // first line of each flagged function (next/prev jumps)
+    std::vector<std::wstring> flagReason;    // per line: reason label, set on each runStart only
+    int          flagCount = 0;              // flagged functions in this file
+    std::wstring styleNote;                  // why no judgment was made, if none was
 };
 
 struct AppModal {
@@ -356,17 +366,24 @@ struct AppModal {
     DWORD sourceScrollStartTick = 0;
 
     // MODAL_SOURCE_VIEW compare mode only (openSourceCompareModal) —
-    // display-only line matching between a flagged pair's two files,
-    // never fed back into scoring. See SourceViewSide above for how the
-    // active/parked sides are held.
+    // two display-only highlights, never fed back into scoring: gold =
+    // lines matching the other file, red = functions that break this
+    // file's own student's profile. See SourceViewSide above for how
+    // the active/parked sides are held.
     bool sourceCompare = false;
     int  sourceSide    = 0;          // 0 = File A shown, 1 = File B shown
     std::vector<int>  sourcePartner;
+    std::vector<char> sourceMatchHighlight;
+    std::vector<int>  sourceMatchRunStarts;
+    int  sourceMatchCount = 0;       // matched significant lines (same on both sides)
+    std::wstring sourceMatchNote;    // why match highlighting is unavailable, if it is
     std::vector<char> sourceHighlight;
     std::vector<int>  sourceRunStarts;
-    int  sourceMatchCount = 0;       // matched significant lines per side
-    std::wstring sourceCompareNote;  // why highlighting is unavailable, if it is
+    std::vector<std::wstring> sourceFlagReason;
+    int  sourceFlagCount = 0;        // flagged functions in the shown file
+    std::wstring sourceStyleNote;    // why no judgment was made, if none was
     SourceViewSide sourceOther;
+    bool sourceLegendOpen = false;   // "How to read" panel over the body (drawSourceViewLegend)
 };
 
 static const int HELP_STEP_COUNT = 10;
@@ -388,6 +405,7 @@ enum class FocusKind {
     UnclassifiedAssign, UnclassifiedDelete, AISummaryLink, LangNoticeToggle,
     CollapsedPairRow, ExpandedPairHeader, ShowAllFeaturesToggle, CopyFindingsBtn,
     EmptyStateCard, CancelAnalysisBtn,
+    DropdownAnchor,  // dataIndex = DropdownId; activates = opens it
     // Sync sheet — SyncPrimaryBtn/SyncSecondaryBtn are reused across
     // all four sheet states (same as the underlying g_syncPrimaryBtnRect/
     // g_syncSecondaryBtnRect globals they mirror); activateFocused()
@@ -454,6 +472,33 @@ struct StudentCardRect {
 
 enum PairSeverityFilter { SEV_FILTER_ALL, SEV_FILTER_HIGH, SEV_FILTER_MODERATE };
 
+// Dropdowns (gui.cpp): the Classes sort and the Flagged Pairs filter.
+// Anchors are drawn by their page's fixed bar via drawDropdownAnchor();
+// the open list is an overlay drawn and hit-tested by ContentProc.
+enum DropdownId { DD_NONE = 0, DD_CLASSES_SORT = 1, DD_PAIR_FILTER = 2,
+                  DD_CLASSES_SECTIONS = 3 };
+void drawDropdownAnchor(HDC hdc, const RECT& r, int id, const std::wstring& prefix);
+int  dropdownAnchorWidth(HDC hdc, int id, const std::wstring& prefix);
+// For anchors a page draws itself (e.g. the Classes "+N more" chip):
+// record its rect + focus stop this frame, and ask whether it's open.
+void registerDropdownAnchor(int id, const RECT& r);
+bool dropdownIsOpen(int id);
+// Classes block bar: the sections that didn't fit as chips, listed by
+// the "+N more ▾" dropdown (labels, and their g_blockTabNames index).
+// Rebuilt by drawBlockTabBar every paint.
+extern std::vector<std::wstring> g_sectionOverflowLabels;
+extern std::vector<int>          g_sectionOverflowTabs;
+
+// Classes roster search box (gui.cpp): drawn into the block bar,
+// hosts the real search EDIT; filters the roster by student name.
+void drawSearchBox(HDC hdc, const RECT& r);
+bool searchBoxHit(int mx, int my);
+void focusSearchBox(HWND hwnd);
+
+// Fixed toolbar row on the Flagged Pairs page (Export / Search /
+// Filter), between the context strip and the scrolling pair list.
+static const int FLAGGED_TOOLBAR_HEIGHT = 52;
+
 struct SeverityChipRect { int x, y, w, h; PairSeverityFilter filter; };
 
 struct PairAnimEntry { DWORD startTick; bool opening; }; // opening: animating toward expanded; false = toward collapsed
@@ -499,7 +544,6 @@ struct AISummaryLinkRect { RECT r; int pairIndex; };
 // drift apart.
 // ─────────────────────────────────────────────────────────────
 extern std::string runAnalysisPipeline(const std::string& dataFolder,
-                                       const std::string& outputFile,
                                        bool useAI);
 extern std::string generateStudentSimilarityReport(const std::string& studentName);
 extern AnalysisResults g_analysisResults;
@@ -533,6 +577,12 @@ extern int g_contentFadeAlpha;
 extern std::atomic<bool> g_analysisCancelRequested;
 extern int g_scrollY;
 extern int g_viewportH;
+// Deep-link auto-scroll: jumpToFlaggedPair() sets the pair index;
+// drawFlaggedPairs() records that pair's offset from the top of the
+// scrollable content; ContentProc's WM_PAINT then scrolls to it once
+// (clamped) and clears both. -1 = nothing pending.
+extern int g_pendingScrollPairIdx;
+extern int g_pendingScrollPairOffset;
 extern std::vector<FocusableItem> g_contentFocusables;
 extern bool g_focusVisible;
 extern ResultsPage g_currentPage;
@@ -633,6 +683,25 @@ void showAppModal(const std::wstring& title, const std::wstring& body,
                           std::function<void(bool)> onResult = nullptr);
 void showToast(const std::wstring& text, ToastKind kind);
 std::string toNarrowGC(const std::wstring& w);
+
+// ── AI settings (gui_ai_settings.cpp) ─────────────────────────
+// The Gemini key lives in Windows Credential Manager; these drive the
+// "AI settings" dialog and the no-key state of the UI.
+bool aiKeyConfigured();                  // cached; refreshed on change
+void invalidateAiKeyState();
+void openAiSettingsDialog(HWND parent);
+// Startup, one-time import of legacy key/token files: run the import
+// FIRST (before any window asks "is a key saved?", which would otherwise
+// trigger the silent fallback import in loadApiKey), then show what
+// happened once the main window is up.
+void migrateLegacySecretsEarly();
+void showLegacySecretMigrationNotice();
+// gui.cpp: no key → "Include AI summary" unticked + disabled; key →
+// enabled (and ticked when tickIfEnabled).
+void syncAiSummaryCheckbox(bool tickIfEnabled);
+// "Set up AI…" links drawn in content (Overview AI section, per-pair
+// AI notes); content-space rects (+g_scrollY), rebuilt every paint.
+extern std::vector<RECT> g_aiSetupLinkRects;
 std::wstring truncateMiddle(HDC hdc, const std::wstring& text, int maxWidth);
 void updateUI();
 std::string wideToUtf8(const std::wstring& w);
@@ -650,6 +719,11 @@ bool handleStudentsClick(HWND hwnd, int mx, int my);
 int drawStudentsPage(HDC hdc, int contentX, int contentY, int contentW,
                       int pageContentStartY);
 void handleStudentsDetailMouseMove(HWND hwnd, int mx, int my);
+void handleStudentsGridMouseMove(HWND hwnd, int mx, int my);
+void clearStudentsGridHover(HWND hwnd);
+// Student detail page: Flagged Appearances panel's own scroll.
+bool handleStudentsWheel(HWND hwnd, int mx, int my, int delta);
+void handleStudentsMouseUp();
 void drawStudentDnaTooltip(HDC hdc, const RECT& rect);
 void generateAndOpenStudentReport();
 void openStudentDetail(HWND hwnd, int studentIdx);
@@ -664,6 +738,11 @@ int drawFlaggedPairs(HDC hdc, int x, int y, int width);
 // Checkpoint 2 of the ContentProc split:
 bool handleFlaggedPairsClick(HWND hwnd, int mx, int scrolledY);
 bool pairMatchesSeverityFilter(double combinedScorePct, PairSeverityFilter f);
+// Whether a flagged pair passes the Flagged Pairs filter dropdown's
+// exact-duplicates/severity choice, and how many pairs currently do —
+// shared by the list and the toolbar's count.
+bool flaggedPairVisible(const PairAnalysisDisplay& pair);
+int  countVisibleFlaggedPairs();
 bool exportPairsToCsv(HWND hwnd);
 void jumpToFlaggedPair(HWND hwnd, int pairIndex);
 void selectSeverityFilter(HWND hwnd, PairSeverityFilter f);
@@ -676,9 +755,12 @@ void togglePairExpanded(HWND hwnd, int pairIdx);
 void openSourceViewModal(const std::wstring& label, const std::wstring& subtitle,
                           const std::string& path);
 // Compare-mode variant (Flagged Pairs): loads both files, computes the
-// display-only line matches, and opens showing side A or B.
+// display-only line matches (gold) and each file's style changes against
+// its own student's profile (red), and opens showing side A or B.
 void openSourceCompareModal(const std::string& pathA, const std::wstring& labelA,
+                             const std::string& studentA,
                              const std::string& pathB, const std::wstring& labelB,
+                             const std::string& studentB,
                              bool showA);
 void toggleShowAllFeatures(HWND hwnd, int key);
 void closeHelpCarousel();
@@ -693,6 +775,8 @@ int drawStatsDashboard(HDC hdc, int x, int y, int width);
 // Checkpoint 1 of the ContentProc split (see CLAUDE.md backlog):
 int drawResultsHeader(HDC hdc, int x, int y, int width);
 bool handleOverviewClick(HWND hwnd, int mx, int scrolledY);
+// Gemini HTTP errors -> "message (HTTP code)" instead of raw JSON.
+std::wstring readableAIError(const std::string& err);
 void activateSyncFocused();
 void onGoogleClassroom(HWND hwnd);
 void syncFocusMove(int delta);

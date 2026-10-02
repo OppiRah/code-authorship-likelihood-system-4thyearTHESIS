@@ -18,6 +18,8 @@ g++ -std=c++17 ^
     src/gui_overview.cpp ^
     src/gui_flagged.cpp ^
     src/gui_students.cpp ^
+    src/gui_ai_settings.cpp ^
+    src/secret_store.cpp ^
     -I include/ ^
-    -lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus ^
+    -lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus -ladvapi32 ^
     -o authorship.exe

@@ -5,6 +5,8 @@ authorship-cpp/calss_gc_token.json
 authorship-cpp/calss_gc_embedded_credentials.json
 
 # ── Build artifacts ─────────────────────────────────────────────
+# make_release.bat output
+authorship-cpp/release/
 *.exe
 *.o
 *.obj

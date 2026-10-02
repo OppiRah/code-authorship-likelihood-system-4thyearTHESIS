@@ -50,6 +50,55 @@
 std::vector<std::string> g_blockTabNames;
 RECT g_backButtonRect = {};
 
+// ── Flagged Appearances panel scroll (student detail page) ─────────
+// A student can appear in dozens of flagged pairs; drawing every row
+// made the detail page very long. The panel now shows at most
+// FA_MAX_VISIBLE_ROWS rows in its own viewport with its own scrollbar
+// (mouse wheel over it, a draggable thumb, click-on-track to page).
+// Rects below are window-space as drawn this frame.
+static const int FA_MAX_VISIBLE_ROWS = 10;
+static int  g_faScrollY      = 0;
+static int  g_faScrollMax    = 0;
+static int  g_faStudent      = -1;   // scroll resets when the student changes
+static RECT g_faListRect     = {};   // row viewport
+static RECT g_faTrackRect    = {};   // scrollbar track (empty = no scrollbar)
+static RECT g_faThumbRect    = {};
+static bool g_faDragging     = false;
+static int  g_faDragStartY   = 0;
+static int  g_faDragStartScroll = 0;
+
+static void faSetScroll(HWND hwnd, int v) {
+    if (v < 0) v = 0;
+    if (v > g_faScrollMax) v = g_faScrollMax;
+    if (v != g_faScrollY) {
+        g_faScrollY = v;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+// Mouse wheel over the panel scrolls the panel; at either end the
+// wheel falls through to the page (returns false) so it never traps.
+bool handleStudentsWheel(HWND hwnd, int mx, int my, int delta) {
+    if (g_selectedStudent < 0 || g_faScrollMax <= 0) return false;
+    RECT area = g_faListRect;
+    if (g_faTrackRect.right > area.right) area.right = g_faTrackRect.right;
+    if (mx < area.left || mx >= area.right || my < area.top || my >= area.bottom) return false;
+    int step = (delta / WHEEL_DELTA) * S(34) * 3;
+    int want = g_faScrollY - step;
+    if ((want < 0 && g_faScrollY == 0) || (want > g_faScrollMax && g_faScrollY == g_faScrollMax))
+        return false;
+    faSetScroll(hwnd, want);
+    return true;
+}
+
+void handleStudentsMouseUp() {
+    if (g_faDragging) {
+        g_faDragging = false;
+        ReleaseCapture();
+        if (g_hContent) InvalidateRect(g_hContent, nullptr, FALSE);
+    }
+}
+
 static DnaStripStyle dnaStyleDetail() {
     return { S(14), S(3), S(10), S(44), GOLD_500, RISK_HIGH };
 }
@@ -178,108 +227,143 @@ static std::vector<std::wstring> condenseStyleNotes(
     return lines;
 }
 
-// Card height for a given number of condensed note lines — split out
-// of drawStudentProfileCard so drawStudentProfiles can lay out (and
-// register hit-rects for) off-screen cards without drawing them.
-static int studentProfileCardHeight(size_t noteLineCount) {
-    // Fixed-height card. The old card sized itself to its bullet count
-    // and reserved ~60px of dead space below the last bullet; the grid
-    // read as unfinished. Every region below now has a job.
-    return S(20) + S(26) + S(10) + S(18) + S(12)
-         + (int)noteLineCount * S(19) + S(10)
-         + S(28) + S(6);
+// ── Roster layout (Classes grid) ─────────────────────────────────
+// One full-width row per student, like a class roster, instead of a
+// two-column grid of card boxes: name + submission count, Style DNA
+// strip, the two condensed habit lines, and the flagged-appearance
+// count/max on the right. Rows are separated by hairlines; the hovered
+// row gets a gray-850 fill and a 3px gold bar, so each student still
+// reads as its own unit without a box around it.
+static const int ROSTER_ROW_HEIGHT    = 76;
+static const int ROSTER_HEADER_HEIGHT = 34;
+
+static int g_rosterHoverIdx = -1;  // profile index under the cursor, -1 = none
+
+static DnaStripStyle dnaStyleRoster() {
+    return { S(7), S(2), S(8), S(24), GRAY_400, RISK_HIGH };
 }
 
-static int drawStudentProfileCard(HDC hdc, int x, int y, int w,
-                                    const StudentProfileSummary& profile,
-                                    const StudentFlagSummary& flags)
+struct RosterCols { int left, right, nameX, nameW, dnaX, dnaW, habitsX, habitsW, flagX; };
+
+// Column positions for a given content width. The habits column is the
+// one that gives way on narrow windows (dropped below ~150px) so the
+// name, DNA and flagged columns never clip.
+static RosterCols rosterColumns(int x, int width) {
+    RosterCols c;
+    c.left  = x + S(30);
+    c.right = x + width - S(30);
+    int W = c.right - c.left;
+    c.nameX = c.left + S(18);
+    c.nameW = W * 26 / 100;
+    if (c.nameW < S(170)) c.nameW = S(170);
+    if (c.nameW > S(300)) c.nameW = S(300);
+    c.dnaX  = c.nameX + c.nameW + S(16);
+    c.dnaW  = S(150);
+    c.flagX = c.right - S(16) - S(130);
+    c.habitsX = c.dnaX + c.dnaW + S(20);
+    c.habitsW = c.flagX - S(20) - c.habitsX;
+    if (c.habitsW < S(150)) c.habitsW = 0;
+    return c;
+}
+
+static void drawRosterHeader(HDC hdc, int y, const RosterCols& c) {
+    SetBkMode(hdc, TRANSPARENT);
+    HFONT of = (HFONT)SelectObject(hdc, g_hFontLabel);
+    SetTextColor(hdc, GRAY_400);
+    int h = S(ROSTER_HEADER_HEIGHT);
+    RECT n = {c.nameX, y, c.nameX + c.nameW, y + h};
+    DrawTextW(hdc, L"STUDENT", -1, &n, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    RECT d = {c.dnaX, y, c.dnaX + c.dnaW, y + h};
+    DrawTextW(hdc, L"STYLE DNA", -1, &d, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    if (c.habitsW > 0) {
+        RECT hb = {c.habitsX, y, c.habitsX + c.habitsW, y + h};
+        DrawTextW(hdc, L"HABITS", -1, &hb, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    }
+    RECT f = {c.flagX, y, c.right - S(16), y + h};
+    DrawTextW(hdc, L"FLAGGED", -1, &f, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    RECT line = {c.left, y + h - 1, c.right, y + h};
+    HBRUSH lb = CreateSolidBrush(GRAY_700);
+    FillRect(hdc, &line, lb);
+    DeleteObject(lb);
+    SelectObject(hdc, of);
+}
+
+static void drawRosterRow(HDC hdc, int y, const RosterCols& c,
+                          const StudentProfileSummary& profile,
+                          const StudentFlagSummary& flags, bool hovered)
 {
     SetBkMode(hdc, TRANSPARENT);
+    int rowH = S(ROSTER_ROW_HEIGHT);
+    if (hovered) {
+        RECT bg = {c.left, y, c.right, y + rowH - 1};
+        HBRUSH hb = CreateSolidBrush(GRAY_850);
+        FillRect(hdc, &bg, hb);
+        DeleteObject(hb);
+        RECT bar = {c.left, y, c.left + S(3), y + rowH - 1};
+        HBRUSH gb = CreateSolidBrush(GOLD_500);
+        FillRect(hdc, &bar, gb);
+        DeleteObject(gb);
+    }
 
-    auto noteLines = condenseStyleNotes(profile.styleNotes, 2);
-
-    const int PAD       = S(20);
-    const int nameH     = S(26);
-    const int dnaH      = S(18);
-    const int noteH     = S(19);
-    int cardH = studentProfileCardHeight(noteLines.size());
-
-    RECT card = {x, y, x + w, y + cardH};
-    drawCard(hdc, card, GRAY_850, GRAY_700, 10);
-
-    HFONT oldFont = (HFONT)SelectObject(hdc, g_hFontH2);
-    int cy = y + PAD;
-
-    // Name — white, not gold. Gold is reserved for eyebrows and
-    // wayfinding; a heading is a heading.
+    // Name + submission count
+    HFONT of = (HFONT)SelectObject(hdc, g_hFontButton);
     SetTextColor(hdc, WHITE_);
-    RECT nameRect = {x + PAD, cy, x + w - S(92), cy + nameH};
-    DrawTextW(hdc, s2w(profile.name).c_str(), -1, &nameRect,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-
-    // Submission count — mono tabular, right aligned
+    RECT nameR = {c.nameX, y + S(14), c.nameX + c.nameW, y + S(38)};
+    DrawTextW(hdc, s2w(profile.name).c_str(), -1, &nameR,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     SelectObject(hdc, g_hFontMonoSm);
     SetTextColor(hdc, GRAY_400);
     std::wstring cnt = std::to_wstring(profile.submissionCount) +
-                       (profile.submissionCount == 1 ? L" sub" : L" subs");
-    RECT cntRect = {x + w - S(88), cy, x + w - PAD, cy + nameH};
-    DrawTextW(hdc, cnt.c_str(), -1, &cntRect,
-              DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-    cy += nameH + S(10);
+                       (profile.submissionCount == 1 ? L" submission" : L" submissions");
+    RECT cntR = {c.nameX, y + S(40), c.nameX + c.nameW, y + S(60)};
+    DrawTextW(hdc, cnt.c_str(), -1, &cntR, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
-    // Style DNA — the fingerprint, as a glanceable barcode
-    drawDnaStrip(hdc, x + PAD, cy, profile.featureVector, nullptr, dnaStyleCard());
-    cy += dnaH + S(12);
+    // Style DNA strip
+    DnaStripStyle ds = dnaStyleRoster();
+    drawDnaStrip(hdc, c.dnaX, y + (rowH - ds.height) / 2, profile.featureVector, nullptr, ds);
 
-    // Condensed style notes
-    SelectObject(hdc, g_hFontBodyNew);
-    SetTextColor(hdc, GRAY_200);
-    for (const auto& line : noteLines) {
-        RECT lr = {x + PAD, cy, x + w - PAD, cy + noteH};
-        DrawTextW(hdc, line.c_str(), -1, &lr,
-                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-        cy += noteH;
+    // Habits — the two condensed note lines
+    if (c.habitsW > 0) {
+        SelectObject(hdc, g_hFontBodyNew);
+        SetTextColor(hdc, GRAY_200);
+        auto lines = condenseStyleNotes(profile.styleNotes, 2);
+        int ly = y + S(14);
+        for (const auto& line : lines) {
+            RECT lr = {c.habitsX, ly, c.habitsX + c.habitsW, ly + S(24)};
+            DrawTextW(hdc, line.c_str(), -1, &lr,
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            ly += S(24);
+        }
     }
-    cy += S(10);
 
-    // Hairline
-    HPEN sep = CreatePen(PS_SOLID, 1, GRAY_700);
-    HPEN oldPen = (HPEN)SelectObject(hdc, sep);
-    MoveToEx(hdc, x + PAD, cy, nullptr);
-    LineTo(hdc, x + w - PAD, cy);
-    SelectObject(hdc, oldPen);
-    DeleteObject(sep);
-    cy += S(8);
-
-    // Footer — the previously-missing signal. Severity color is
-    // earned here, not decorative.
+    // Flagged appearances — count in the severity color, max below
+    RECT fR = {c.flagX, y + S(12), c.right - S(16), y + S(40)};
+    RECT mR = {c.flagX, y + S(40), c.right - S(16), y + S(60)};
     if (flags.count > 0) {
         COLORREF sev = (flags.maxScore >= 85.0) ? RISK_HIGH
                      : (flags.maxScore >= 70.0) ? RISK_MOD : RISK_LOW;
-        SelectObject(hdc, g_hFontBodyNew);
+        SelectObject(hdc, g_hFontH2);
         SetTextColor(hdc, sev);
-        std::wstring flagTxt = L"\u2691  " + std::to_wstring(flags.count) +
-            (flags.count == 1 ? L" flagged appearance" : L" flagged appearances");
-        RECT fr = {x + PAD, cy, x + w - S(96), cy + S(20)};
-        DrawTextW(hdc, flagTxt.c_str(), -1, &fr,
-                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-
+        std::wstring n = std::to_wstring(flags.count);
+        DrawTextW(hdc, n.c_str(), -1, &fR, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
         SelectObject(hdc, g_hFontMonoSm);
-        SetTextColor(hdc, sev);
+        SetTextColor(hdc, GRAY_400);
         wchar_t maxBuf[32];
         swprintf(maxBuf, 32, L"max %.1f%%", flags.maxScore);
-        RECT mr = {x + w - S(94), cy, x + w - PAD, cy + S(20)};
-        DrawTextW(hdc, maxBuf, -1, &mr, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+        DrawTextW(hdc, maxBuf, -1, &mR, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     } else {
         SelectObject(hdc, g_hFontBodyNew);
         SetTextColor(hdc, GRAY_500);
-        RECT fr = {x + PAD, cy, x + w - PAD, cy + S(20)};
-        DrawTextW(hdc, L"No flagged appearances", -1, &fr,
-                  DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        DrawTextW(hdc, L"None", -1, &fR, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
 
-    SelectObject(hdc, oldFont);
-    return cardH;
+    // Separator
+    RECT line = {c.left, y + rowH - 1, c.right, y + rowH};
+    HBRUSH lb = CreateSolidBrush(GRAY_700);
+    FillRect(hdc, &line, lb);
+    DeleteObject(lb);
+
+    SelectObject(hdc, of);
 }
 
 // Draws the block sub-tab bar for the Classes page: "All" plus one tab
@@ -321,6 +405,19 @@ int drawBlockTabBar(HDC hdc, int x, int y, int width) {
 
     g_blockTabRects.clear();
 
+    // Sort ▾ dropdown, right-aligned in this fixed bar (it used to be a
+    // click-to-cycle button in the scrolling header below).
+    int sortW = dropdownAnchorWidth(hdc, DD_CLASSES_SORT, L"Sort: ");
+    int sortH = btbH - S(12);
+    RECT sortR = {x + width - S(20) - sortW, y + (btbH - sortH) / 2,
+                  x + width - S(20), y + (btbH - sortH) / 2 + sortH};
+    // Search box, left of Sort — shrinks on narrow windows first.
+    int searchW = (sortR.left - S(10)) - (x + S(20)) - S(260);  // keep room for chips
+    if (searchW > S(280)) searchW = S(280);
+    if (searchW < S(170)) searchW = S(170);
+    RECT searchR = {sortR.left - S(10) - searchW, sortR.top, sortR.left - S(10), sortR.bottom};
+    int chipsRight = searchR.left - S(16);
+
     int tabX = x + S(20);
     int tabPad = S(10);
     int tabH = btbH - S(10);
@@ -336,36 +433,94 @@ int drawBlockTabBar(HDC hdc, int x, int y, int width) {
     for (size_t i = 0; i < g_blockTabNames.size(); ++i)
         chipItems.push_back({(int)i, s2w(g_blockTabNames[i])});
 
+    // Measure every chip first, then show as many as fit beside the
+    // search box; the rest go behind a final "+N more ▾" chip that opens
+    // a dropdown of the hidden sections (so on a small window nothing is
+    // unreachable). If the selected section is one of the hidden ones,
+    // that chip shows its name instead, in the active style.
+    struct Chip { int tabIdx; std::wstring label; int w; };
+    std::vector<Chip> chips;
     for (const auto& item : chipItems) {
         int count = (item.first == -1)
             ? (int)r.profiles.size()
             : blockCounts[g_blockTabNames[item.first]];
         std::wstring fullLabel = item.second + L"  (" + std::to_wstring(count) + L")";
-
         RECT measureR = {0, 0, 0, 0};
         DrawTextW(hdc, fullLabel.c_str(), -1, &measureR, DT_CALCRECT | DT_SINGLELINE);
-        int tabW = measureR.right - measureR.left + S(32);
+        chips.push_back({item.first, fullLabel, measureR.right - measureR.left + S(32)});
+    }
 
-        bool active = (g_currentBlockTab == item.first);
-        RECT pillR = {tabX, tabY, tabX + tabW, tabY + tabH};
+    int avail = chipsRight - tabX;
+    auto widthOf = [&](int k) {           // first k chips, with gaps after each
+        int w = 0;
+        for (int i = 0; i < k; ++i) w += chips[i].w + tabPad;
+        return w;
+    };
+    auto overflowLabel = [&](int visible) {
+        for (int i = visible; i < (int)chips.size(); ++i)
+            if (chips[i].tabIdx == g_currentBlockTab) return chips[i].label;
+        return L"+" + std::to_wstring((int)chips.size() - visible) + L" more";
+    };
+    auto overflowWidth = [&](const std::wstring& lbl) {
+        RECT m = {0, 0, 0, 0};
+        DrawTextW(hdc, (lbl + L"  \u25BE").c_str(), -1, &m, DT_CALCRECT | DT_SINGLELINE);
+        return m.right - m.left + S(32);
+    };
+
+    int visible = (int)chips.size();
+    if (widthOf(visible) - tabPad > avail) {
+        for (visible = (int)chips.size() - 1; visible > 0; --visible)
+            if (widthOf(visible) + overflowWidth(overflowLabel(visible)) <= avail) break;
+    }
+
+    for (int i = 0; i < visible; ++i) {
+        const Chip& ch = chips[i];
+        bool active = (g_currentBlockTab == ch.tabIdx);
+        RECT pillR = {tabX, tabY, tabX + ch.w, tabY + tabH};
 
         // Pill chip: gray-850 rest, maroon-700 active fill, per spec
         // §5.8 ("pill, gray-850 rest, maroon-700 fill when active").
         drawCard(hdc, pillR, active ? MAROON_700 : GRAY_850,
                  active ? GOLD_500 : GRAY_700, tabH / 2);
         SetTextColor(hdc, active ? WHITE_ : GRAY_400);
-        DrawTextW(hdc, fullLabel.c_str(), -1, &pillR,
+        DrawTextW(hdc, ch.label.c_str(), -1, &pillR,
                   DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
         BlockTabRect hit;
-        hit.x = tabX; hit.y = tabY; hit.w = tabW; hit.h = tabH;
-        hit.tabIdx = item.first;
+        hit.x = tabX; hit.y = tabY; hit.w = ch.w; hit.h = tabH;
+        hit.tabIdx = ch.tabIdx;
         g_blockTabRects.push_back(hit);
         addFocusable(g_contentFocusables, FocusKind::BlockChip,
                      RECT{hit.x, hit.y, hit.x + hit.w, hit.y + hit.h}, hit.tabIdx, false);
 
-        tabX += tabW + tabPad;
+        tabX += ch.w + tabPad;
     }
+
+    g_sectionOverflowLabels.clear();
+    g_sectionOverflowTabs.clear();
+    if (visible < (int)chips.size()) {
+        for (int i = visible; i < (int)chips.size(); ++i) {
+            g_sectionOverflowLabels.push_back(chips[i].label);
+            g_sectionOverflowTabs.push_back(chips[i].tabIdx);
+        }
+        std::wstring lbl = overflowLabel(visible);
+        bool activeHidden = (lbl.empty() || lbl[0] != L'+');
+        bool open = dropdownIsOpen(DD_CLASSES_SECTIONS);
+        int ovW = overflowWidth(lbl);
+        if (ovW > chipsRight - tabX) ovW = chipsRight - tabX;
+        RECT pillR = {tabX, tabY, tabX + ovW, tabY + tabH};
+        drawCard(hdc, pillR, activeHidden ? MAROON_700 : GRAY_850,
+                 (activeHidden || open) ? GOLD_500 : GRAY_700, tabH / 2);
+        SetTextColor(hdc, activeHidden ? WHITE_ : GRAY_200);
+        std::wstring text = lbl + L"  \u25BE";
+        RECT tr = {pillR.left + S(14), pillR.top, pillR.right - S(14), pillR.bottom};
+        DrawTextW(hdc, text.c_str(), -1, &tr,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        registerDropdownAnchor(DD_CLASSES_SECTIONS, pillR);
+    }
+
+    drawSearchBox(hdc, searchR);
+    drawDropdownAnchor(hdc, sortR, DD_CLASSES_SORT, L"Sort: ");
 
     SelectObject(hdc, oldFont);
     return btbH;
@@ -390,35 +545,21 @@ int drawStudentProfiles(HDC hdc, int x, int y, int width) {
     HFONT oldFont = (HFONT)SelectObject(hdc, g_hFontTitle);
     SetTextColor(hdc, TEXT_MAIN);
 
-    RECT hdrRect = {x + S(28), y + S(12), x + width - S(280), y + S(56)};
+    // Title, with the click hint on its own line beneath it (it used
+    // to be right-aligned on the title's line and overlapped the title
+    // on narrow windows).
+    RECT hdrRect = {x + S(28), y + S(12), x + width - S(28), y + S(52)};
     std::wstring fullHdr = L"Student Style Profiles  ("
                          + std::to_wstring(r.profiles.size()) + L")";
     DrawTextW(hdc, fullHdr.c_str(), -1, &hdrRect,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
-    // Sort control (spec §5.8: "Add Sort ▾ (name / submissions /
-    // flagged appearances)"). Cycles on click.
     SelectObject(hdc, g_hFontBodyNew);
-    const wchar_t* sortLabels[3] = {
-        L"Sort: Name \u25BE", L"Sort: Submissions \u25BE", L"Sort: Flagged \u25BE"
-    };
-    const wchar_t* sortLabel = sortLabels[g_classesSortMode];
-    SIZE sortSz; GetTextExtentPoint32W(hdc, sortLabel, (int)wcslen(sortLabel), &sortSz);
-    RECT sortR = {x + width - S(28) - sortSz.cx - S(20), y + S(16), x + width - S(28), y + S(40)};
-    g_sortControlRect.left   = sortR.left;
-    g_sortControlRect.top    = sortR.top + g_scrollY;
-    g_sortControlRect.right  = sortR.right;
-    g_sortControlRect.bottom = sortR.bottom + g_scrollY;
-    drawCard(hdc, sortR, GRAY_800, GRAY_700, 6);
-    SetTextColor(hdc, GRAY_200);
-    DrawTextW(hdc, sortLabel, -1, &sortR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    SelectObject(hdc, g_hFontSmall);
-    SetTextColor(hdc, TEXT_DIM);
-    RECT hintRect = {x + S(28), y + S(30), x + width - S(300), y + S(56)};
-    DrawTextW(hdc, L"Click any card to view full profile",
-              -1, &hintRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
-    y += S(64);
+    SetTextColor(hdc, GRAY_400);
+    RECT hintRect = {x + S(28), y + S(52), x + width - S(28), y + S(74)};
+    DrawTextW(hdc, L"Click a student to view their full profile",
+              -1, &hintRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    y += S(88);
 
     // Group students by block. Students are only grouped for DISPLAY
     // purposes here — this has no effect on scoring or pairwise
@@ -427,24 +568,21 @@ int drawStudentProfiles(HDC hdc, int x, int y, int width) {
     // flagging, not noise to isolate away).
     const StudentsTabCache& cache = studentsTabCache();
 
-    // Live search filter (spec §5.8) — skip any profile whose name
-    // doesn't contain the current search text. Empty filter = show all.
+    // Flagged-appearance count per student, needed for the "Flagged"
+    // sort mode — from the per-run cache.
+    auto flagCount = [&](int i) { return cache.flags[i].count; };
+
+    std::map<std::string, std::vector<int>> byBlock; // block name -> profile indices
+    // Search box (block bar): case-insensitive substring of the name.
     auto passesSearch = [&](const std::string& name) {
         if (g_searchFilterLower.empty()) return true;
         std::wstring nameLower = s2w(name);
         std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::towlower);
         return nameLower.find(g_searchFilterLower) != std::wstring::npos;
     };
-
-    // Flagged-appearance count per student, needed for the "Flagged"
-    // sort mode — from the per-run cache.
-    auto flagCount = [&](int i) { return cache.flags[i].count; };
-
-    std::map<std::string, std::vector<int>> byBlock; // block name -> profile indices
-    for (size_t i = 0; i < r.profiles.size(); ++i) {
-        if (!passesSearch(r.profiles[i].name)) continue;
-        byBlock[cache.blocks[i]].push_back((int)i);
-    }
+    for (size_t i = 0; i < r.profiles.size(); ++i)
+        if (passesSearch(r.profiles[i].name))
+            byBlock[cache.blocks[i]].push_back((int)i);
 
     // Apply sort mode within each block group.
     for (auto& kv : byBlock) {
@@ -468,10 +606,7 @@ int drawStudentProfiles(HDC hdc, int x, int y, int width) {
         }
     }
 
-    int padding = S(20);
-    int gridX = x + S(30);
-    int gridW = width - S(60);
-    int colW = (gridW - padding) / 2;
+    RosterCols cols = rosterColumns(x, width);
 
     // "General" (no block info) renders last, real block names first
     // and alphabetically, for a stable, predictable layout.
@@ -493,16 +628,12 @@ int drawStudentProfiles(HDC hdc, int x, int y, int width) {
     }
 
     if (blockOrder.empty() && !g_searchFilterLower.empty()) {
-        // No results for this search — say so plainly rather than
-        // rendering a silently empty grid.
         SelectObject(hdc, g_hFontBodyNew);
         SetTextColor(hdc, GRAY_400);
         RECT emR = {x + S(30), y, x + width - S(30), y + S(40)};
         DrawTextW(hdc, L"No students match your search.", -1, &emR,
                   DT_LEFT | DT_VCENTER | DT_SINGLELINE);
         y += S(50);
-        SelectObject(hdc, oldFont);
-        return y - startY;
     }
 
     for (const auto& blockName : blockOrder) {
@@ -525,52 +656,33 @@ int drawStudentProfiles(HDC hdc, int x, int y, int width) {
         DeleteObject(secPen);
         y += S(14);
 
-        int rowHeight = 0;
-        bool leftColumn = true;
+        drawRosterHeader(hdc, y, cols);
+        y += S(ROSTER_HEADER_HEIGHT);
 
+        int rowH = S(ROSTER_ROW_HEIGHT);
         for (int idx : indices) {
             const auto& profile = r.profiles[idx];
-            int cardX = leftColumn ? gridX : gridX + colW + padding;
-            // Viewport culling (scale perf fix C) — same bounds check
-            // as Flagged Pairs. Height is computed without drawing so
-            // the layout, hit rect and focusable below are identical
-            // whether or not the card is actually painted this frame.
-            int h = studentProfileCardHeight(condenseStyleNotes(profile.styleNotes, 2).size());
-            bool visible = (y + h >= -200) && (y <= g_viewportH + 200);
+            // Viewport culling (scale perf fix C) — rows are fixed-height,
+            // so layout, hit rect and focusable are identical whether or
+            // not the row is painted this frame.
+            bool visible = (y + rowH >= -200) && (y <= g_viewportH + 200);
             if (visible)
-                drawStudentProfileCard(hdc, cardX, y, colW, profile, cache.flags[idx]);
+                drawRosterRow(hdc, y, cols, profile, cache.flags[idx],
+                              idx == g_rosterHoverIdx);
 
             StudentCardRect hit;
-            hit.x = cardX;
-            hit.y = y;
-            hit.w = colW;
-            hit.h = h;
+            hit.x = cols.left;
+            hit.y = y + g_scrollY;  // content-space, like every other hit rect
+            hit.w = cols.right - cols.left;
+            hit.h = rowH;
             hit.studentIdx = idx;
             g_studentCardRects.push_back(hit);
-            // Note: g_studentCardRects stores y without +g_scrollY,
-            // unlike every other content hit-rect vector in this
-            // file — its own click-test (scrolledY comparison) is
-            // therefore only correct at g_scrollY==0, a pre-existing
-            // inconsistency out of scope for this pass. Computing our
-            // own rect here rather than reusing hit.y keeps the focus
-            // system's own scroll-into-view/ring math correct
-            // regardless.
             addFocusable(g_contentFocusables, FocusKind::StudentCard,
-                         RECT{cardX, y + g_scrollY, cardX + colW, y + g_scrollY + h},
+                         RECT{hit.x, hit.y, hit.x + hit.w, hit.y + hit.h},
                          idx, true);
-
-            if (h > rowHeight) rowHeight = h;
-
-            if (!leftColumn) {
-                y += rowHeight + padding;
-                rowHeight = 0;
-            }
-            leftColumn = !leftColumn;
+            y += rowH;
         }
 
-        if (!leftColumn) {
-            y += rowHeight + padding;
-        }
         y += S(20); // gap before next block section
     }
 
@@ -598,17 +710,14 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
     RECT backRect = {x + S(28), y + S(16), x + S(220), y + S(38)};
     DrawTextW(hdc, L"\u2190  Back to Classes", -1, &backRect,
               DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-    // Note: g_backButtonRect (used by the mouse click handler) is set
-    // separately in WM_PAINT using a fixed pageContentStartY-based
-    // value rather than this actually-drawn backRect, so it silently
-    // stops matching once the page is scrolled — a pre-existing bug
-    // out of scope here. Building our own focus rect straight from
-    // backRect (with the same +g_scrollY convention as every other
-    // content item) keeps the focus system correct regardless.
+    // Click rect straight from the actually-drawn backRect, with the
+    // same +g_scrollY convention as every other content hit-rect (it
+    // used to be set separately from a fixed, unscaled reference point
+    // in drawStudentsPage and drifted once the page was scrolled).
+    g_backButtonRect = RECT{backRect.left, backRect.top + g_scrollY,
+                            backRect.right, backRect.bottom + g_scrollY};
     addFocusable(g_contentFocusables, FocusKind::BackButton,
-                 RECT{backRect.left, backRect.top + g_scrollY,
-                      backRect.right, backRect.bottom + g_scrollY},
-                 0, true);
+                 g_backButtonRect, 0, true);
 
     // Generate + Export sit together top-right, matching spec's
     // "Generate similarity report stays top-right, next to the
@@ -708,25 +817,43 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
     }
 
     // ── 3-COLUMN CARD LAYOUT ─────────────────────────────────
+    // On narrow content widths (small window, or a wide sidebar) the
+    // third column left too little room for a row's pill + name +
+    // score, so Flagged Appearances drops below the first two columns
+    // at full width instead.
     int gap     = S(14);
     int colBase = x + S(28);
     int totalW  = width - S(56);
-    int c1W     = (int)(totalW * 0.38);
-    int c2W     = (int)(totalW * 0.26);
-    int c3W     = totalW - c1W - c2W - gap * 2;
+    bool stacked = totalW < S(900);
+    int c1W     = stacked ? (totalW - gap) * 60 / 100 : (int)(totalW * 0.38);
+    int c2W     = stacked ? totalW - gap - c1W        : (int)(totalW * 0.26);
+    int c3W     = stacked ? totalW : totalW - c1W - c2W - gap * 2;
     int c1X     = colBase;
     int c2X     = colBase + c1W + gap;
-    int c3X     = colBase + c1W + c2W + gap * 2;
+    int c3X     = stacked ? colBase : colBase + c1W + c2W + gap * 2;
 
     // Calculate max column height
     int notesH  = (int)profile.styleNotes.size() * S(26) + S(50);
     if (notesH < S(100)) notesH = S(100);
     int filesH  = (int)files.size() * S(24) + S(50);
     if (filesH < S(80)) filesH = S(80);
-    int flagsH  = (int)related.size() * S(34) + S(50);
+    // Flagged Appearances shows at most FA_MAX_VISIBLE_ROWS rows; the
+    // rest scroll inside the panel (see g_faScrollY).
+    int faRowH    = S(34);
+    int faVisible = (int)related.size() < FA_MAX_VISIBLE_ROWS
+                  ? (int)related.size() : FA_MAX_VISIBLE_ROWS;
+    int faListH   = faVisible * faRowH;
+    int flagsH  = faListH + S(50) +
+                  ((int)related.size() > FA_MAX_VISIBLE_ROWS ? S(20) : 0);
     if (flagsH < S(80)) flagsH = S(80);
-    int colH    = notesH > filesH ? (notesH > flagsH ? notesH : flagsH)
-                                  : (filesH > flagsH ? filesH : flagsH);
+    if (g_faStudent != studentIdx) { g_faStudent = studentIdx; g_faScrollY = 0; }
+    g_faScrollMax = (int)related.size() * faRowH - faListH;
+    if (g_faScrollMax < 0) g_faScrollMax = 0;
+    if (g_faScrollY > g_faScrollMax) g_faScrollY = g_faScrollMax;
+    int row1H   = notesH > filesH ? notesH : filesH;
+    int colH    = stacked ? row1H : (row1H > flagsH ? row1H : flagsH);
+    int c3Y     = stacked ? y + colH + gap : y;
+    int c3H     = stacked ? flagsH : colH;
 
     // ── COL 1: Style Fingerprint ──────────────────────────────
     RECT c1Card = {c1X, y, c1X + c1W, y + colH};
@@ -755,7 +882,7 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
             SetTextColor(hdc, WHITE_);
             RECT nR = {c1X + S(26), ny, c1X + c1W - S(14), ny + S(24)};
             DrawTextW(hdc, s2w(note).c_str(), -1, &nR,
-                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_WORDBREAK);
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
             ny += S(26);
         }
     }
@@ -797,17 +924,30 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
     }
 
     // ── COL 3: Flagged Appearances ────────────────────────────
-    RECT c3Card = {c3X, y, c3X + c3W, y + colH};
+    RECT c3Card = {c3X, c3Y, c3X + c3W, c3Y + c3H};
     drawCard(hdc, c3Card, GRAY_850, GRAY_700, 10);
 
-    drawEyebrow(hdc, c3X + S(14), y + S(12), c3W - S(28), L"FLAGGED APPEARANCES");
+    drawEyebrow(hdc, c3X + S(14), c3Y + S(12), c3W - S(28), L"FLAGGED APPEARANCES");
     HPEN c3Sep = CreatePen(PS_SOLID, 1, GRAY_700);
     HPEN oldC3 = (HPEN)SelectObject(hdc, c3Sep);
-    MoveToEx(hdc, c3X + S(14), y + S(33), nullptr);
-    LineTo(hdc, c3X + c3W - S(14), y + S(33));
+    MoveToEx(hdc, c3X + S(14), c3Y + S(33), nullptr);
+    LineTo(hdc, c3X + c3W - S(14), c3Y + S(33));
     SelectObject(hdc, oldC3); DeleteObject(c3Sep);
 
-    int ry = y + S(40);
+    int ry = c3Y + S(40);
+    bool faScrolls = g_faScrollMax > 0;
+    g_faListRect  = RECT{c3X + S(12), ry, c3X + c3W - S(12), ry + faListH};
+    g_faTrackRect = RECT{};
+    g_faThumbRect = RECT{};
+    int faSaved = 0;
+    if (!related.empty()) {
+        // Clip rows to the panel's own viewport (on top of whatever
+        // clip the page already has), and shift them by its scroll.
+        faSaved = SaveDC(hdc);
+        IntersectClipRect(hdc, g_faListRect.left, g_faListRect.top,
+                          g_faListRect.right, g_faListRect.bottom);
+        ry -= g_faScrollY;
+    }
     if (related.empty()) {
         SetTextColor(hdc, RISK_LOW);
         SelectObject(hdc, g_hFontBodyNew);
@@ -821,8 +961,13 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
             COLORREF sev = pairSeverityColor(pair->combinedScore);
             const wchar_t* sevLabel = pairSeverityLabel(pair->combinedScore);
 
-            int rowH = S(34);
-            RECT rowR = {c3X + S(12), ry, c3X + c3W - S(12), ry + rowH - S(2)};
+            int rowH = faRowH;
+            if (ry + rowH <= g_faListRect.top || ry >= g_faListRect.bottom) {
+                ry += rowH;  // outside the panel viewport: no draw, no hit rect
+                continue;
+            }
+            RECT rowR = {c3X + S(12), ry,
+                         c3X + c3W - S(12) - (faScrolls ? S(12) : 0), ry + rowH - S(2)};
 
             bool hovered = false; // hover-state tracking omitted for
                                     // this pass; click works regardless
@@ -846,21 +991,30 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
 
             // Score, right — mono tabular per spec §4.2
             SetTextColor(hdc, sev);
-            RECT scR = {c3X + c3W - S(72), rowR.top, c3X + c3W - S(14), rowR.bottom};
+            RECT scR = {rowR.right - S(60), rowR.top, rowR.right - S(2), rowR.bottom};
             DrawTextW(hdc, fmtPct(pair->combinedScore).c_str(), -1, &scR,
                       DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
 
-            // Filenames, middle-truncated, between pill and score
-            SelectObject(hdc, g_hFontMonoSm);
-            SetTextColor(hdc, GRAY_400);
+            // Who this student was paired with, and on which exam — the
+            // two raw file names used to sit here, middle-truncated into
+            // unreadable fragments at every width (the pair page still
+            // shows the full file names one click away).
+            const std::string& other = (pair->studentA.studentName == profile.name)
+                ? pair->studentB.studentName : pair->studentA.studentName;
+            std::wstring vs = L"vs " + s2w(other) + L"  ·  " +
+                periodDisplayLabelGC(extractPeriodGC(pair->filenameA));
+            SelectObject(hdc, g_hFontBodyNew);
+            SetTextColor(hdc, GRAY_200);
             RECT vsR = {pillR.right + S(10), rowR.top, scR.left - S(8), rowR.bottom};
-            std::wstring vs = s2w(pair->filenameA) + L" vs " + s2w(pair->filenameB);
-            std::wstring vsTrunc = truncateMiddle(hdc, vs, vsR.right - vsR.left);
-            DrawTextW(hdc, vsTrunc.c_str(), -1, &vsR,
-                      DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            DrawTextW(hdc, vs.c_str(), -1, &vsR,
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
+            // Hit rect clipped to the panel viewport (a half-scrolled
+            // row is only clickable where it's visible).
+            RECT vis;
+            IntersectRect(&vis, &rowR, &g_faListRect);
             FlaggedAppearanceRowRect hit;
-            hit.r = { rowR.left, rowR.top + g_scrollY, rowR.right, rowR.bottom + g_scrollY };
+            hit.r = { vis.left, vis.top + g_scrollY, vis.right, vis.bottom + g_scrollY };
             hit.flaggedPairIndex = flaggedIdx;
             g_flaggedAppearanceRowRects.push_back(hit);
             addFocusable(g_contentFocusables, FocusKind::FlaggedAppearanceRow,
@@ -869,8 +1023,39 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
             ry += rowH;
         }
     }
+    if (faSaved) RestoreDC(hdc, faSaved);
 
-    y += colH + S(30);
+    // The panel's own scrollbar — same thin-thumb look as the source
+    // view's, on the panel's right edge.
+    if (faScrolls) {
+        int total = (int)related.size() * faRowH;
+        g_faTrackRect = RECT{c3X + c3W - S(18), g_faListRect.top,
+                             c3X + c3W - S(10), g_faListRect.bottom};
+        HBRUSH tb = CreateSolidBrush(GRAY_800);
+        RECT trackFill = {g_faTrackRect.left + S(2), g_faTrackRect.top,
+                          g_faTrackRect.right - S(2), g_faTrackRect.bottom};
+        FillRect(hdc, &trackFill, tb);
+        DeleteObject(tb);
+        int thumbH = faListH * faListH / total;
+        if (thumbH < S(28)) thumbH = S(28);
+        int thumbY = g_faListRect.top +
+                     (int)((long long)(faListH - thumbH) * g_faScrollY / g_faScrollMax);
+        g_faThumbRect = RECT{g_faTrackRect.left, thumbY, g_faTrackRect.right, thumbY + thumbH};
+        RECT thumbFill = {g_faThumbRect.left + S(2), g_faThumbRect.top,
+                          g_faThumbRect.right - S(2), g_faThumbRect.bottom};
+        HBRUSH thb = CreateSolidBrush(g_faDragging ? GOLD_500 : GRAY_500);
+        FillRect(hdc, &thumbFill, thb);
+        DeleteObject(thb);
+
+        // "N of M" under the list so it's obvious there's more.
+        SelectObject(hdc, g_hFontSmall);
+        SetTextColor(hdc, GRAY_500);
+        std::wstring more = std::to_wstring(related.size()) + L" flagged appearances · scroll for more";
+        RECT mr = {c3X + S(14), g_faListRect.bottom + S(4), c3X + c3W - S(14), g_faListRect.bottom + S(24)};
+        DrawTextW(hdc, more.c_str(), -1, &mr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    }
+
+    y = (stacked ? c3Y + c3H : y + colH) + S(30);
 
     // Compliance fix item 8: this page shows a per-student authorship
     // score (in the third panel above) and had no disclaimer anywhere.
@@ -914,16 +1099,26 @@ bool handleStudentsClick(HWND hwnd, int mx, int my) {
                 return true;
             }
         }
+        if (searchBoxHit(mx, my)) focusSearchBox(hwnd);
+        return true;  // the bar's own band: never fall through to a row under it
     }
 
-    // Classes grid: Sort control click — cycles Name → Submissions →
-    // Flagged → Name (spec §5.8).
-    if (g_selectedStudent < 0 &&
-        mx >= g_sortControlRect.left && mx < g_sortControlRect.right &&
-        scrolledY >= g_sortControlRect.top && scrolledY < g_sortControlRect.bottom)
+    // Flagged Appearances panel scrollbar: drag the thumb, or click
+    // the track above/below it to page.
+    if (g_selectedStudent >= 0 && g_faTrackRect.right > g_faTrackRect.left &&
+        mx >= g_faTrackRect.left && mx < g_faTrackRect.right &&
+        my >= g_faTrackRect.top && my < g_faTrackRect.bottom)
     {
-        g_classesSortMode = (ClassesSortMode)((g_classesSortMode + 1) % 3);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        if (my >= g_faThumbRect.top && my < g_faThumbRect.bottom) {
+            g_faDragging = true;
+            g_faDragStartY = my;
+            g_faDragStartScroll = g_faScrollY;
+            SetCapture(hwnd);
+            InvalidateRect(hwnd, nullptr, FALSE);
+        } else {
+            int page = g_faListRect.bottom - g_faListRect.top;
+            faSetScroll(hwnd, g_faScrollY + (my < g_faThumbRect.top ? -page : page));
+        }
         return true;
     }
 
@@ -985,25 +1180,14 @@ bool handleStudentsClick(HWND hwnd, int mx, int my) {
 // through to drawStudentDetailPage/drawStudentProfiles unchanged.
 int drawStudentsPage(HDC hdc, int contentX, int contentY, int contentW,
                       int pageContentStartY) {
+    (void)pageContentStartY;
     if (g_selectedStudent >= 0) {
-        g_backButtonRect.left   = contentX + 30;
-        g_backButtonRect.top    = pageContentStartY + 15;
-        g_backButtonRect.right  = contentX + 250;
-        g_backButtonRect.bottom = pageContentStartY + 40;
-        // Report button — right side, ~280px wide, 36px tall, y+8
-        int btnW = 280;
-        int btnH = 36;
-        g_reportButtonRect.left   = contentX + contentW - btnW - 30;
-        g_reportButtonRect.top    = pageContentStartY + 8;
-        g_reportButtonRect.right  = contentX + contentW - 30;
-        g_reportButtonRect.bottom = pageContentStartY + 8 + btnH;
+        // Back/report click rects are set inside drawStudentDetailPage
+        // from the rects it actually draws (scroll-correct).
         return drawStudentDetailPage(hdc, contentX, contentY, contentW,
                                       g_selectedStudent);
-    } else {
-        int used = drawStudentProfiles(hdc, contentX, contentY, contentW);
-        for (auto& card : g_studentCardRects) card.y -= 0;
-        return used;
     }
+    return drawStudentProfiles(hdc, contentX, contentY, contentW);
 }
 
 // Style DNA strip hover (spec §4.4: detail-page strip is "interactive
@@ -1015,6 +1199,41 @@ int drawStudentsPage(HDC hdc, int contentX, int contentY, int contentW,
 // Moved out of ContentProc's WM_MOUSEMOVE, which is otherwise
 // page-agnostic — its other chunk (empty-state card hover) is
 // unrelated and stays there.
+// Roster row hover (grid view). my is window-space; hit rects are
+// content-space (+g_scrollY).
+void handleStudentsGridMouseMove(HWND hwnd, int mx, int my) {
+    if (g_faDragging) {
+        int trackH = g_faListRect.bottom - g_faListRect.top;
+        int thumbH = g_faThumbRect.bottom - g_faThumbRect.top;
+        int travel = trackH - thumbH;
+        if (travel > 0)
+            faSetScroll(hwnd, g_faDragStartScroll +
+                (int)((long long)(my - g_faDragStartY) * g_faScrollMax / travel));
+        return;
+    }
+    int found = -1;
+    if (g_selectedStudent < 0) {
+        int sy = my + g_scrollY;
+        for (const auto& card : g_studentCardRects) {
+            if (mx >= card.x && mx < card.x + card.w &&
+                sy >= card.y && sy < card.y + card.h) { found = card.studentIdx; break; }
+        }
+    }
+    if (found != g_rosterHoverIdx) {
+        g_rosterHoverIdx = found;
+        TRACKMOUSEEVENT tme = {sizeof(tme), TME_LEAVE, hwnd, 0};
+        TrackMouseEvent(&tme);
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+void clearStudentsGridHover(HWND hwnd) {
+    if (g_rosterHoverIdx != -1) {
+        g_rosterHoverIdx = -1;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
 void handleStudentsDetailMouseMove(HWND hwnd, int mx, int my) {
     if (g_selectedStudent >= 0 && !g_dnaCellHits.empty()) {
         int found = -1;

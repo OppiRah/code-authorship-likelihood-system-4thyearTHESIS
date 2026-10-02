@@ -25,9 +25,17 @@ struct AISummary {
 // out-of-scope decision on the CLI path; the tiered functions below are
 // the new call path for the main GUI pipeline.
 
-// Reads API key from api_key.txt
-// Returns empty string if file missing or empty
+// Reads the Gemini API key from Windows Credential Manager (importing a
+// legacy api_key.txt once if one is still lying around — see
+// secret_store.h). Returns empty string if no key is configured.
 std::string loadApiKey();
+
+// AI settings dialog support: is a key stored / store one / remove it /
+// test one with a single no-quota request (error filled on failure).
+bool gemini_hasKey();
+bool gemini_saveKey(const std::string& key);
+bool gemini_removeKey();
+bool gemini_testKey(const std::string& apiKey, std::string& error);
 
 // Builds the prompt sent to Gemini based on analysis results
 std::string buildPrompt(const std::vector<PairResult>& flagged,

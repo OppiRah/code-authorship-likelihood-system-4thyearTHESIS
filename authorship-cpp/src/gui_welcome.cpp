@@ -92,13 +92,11 @@ void analysisThread(std::wstring folder, bool useAI) {
         });
 
     std::string folderUtf8 = wideToUtf8(folder);
-    std::string outputFile = "report.html";
 
-    std::string resultMsg = runAnalysisPipeline(folderUtf8, outputFile, useAI);
+    std::string resultMsg = runAnalysisPipeline(folderUtf8, useAI);
 
     setAnalysisProgressCallback(nullptr); // detach before this thread exits
 
-    g_state.lastReport  = utf8ToWide(outputFile);
     g_state.progressMsg = utf8ToWide(resultMsg);
 
     PostMessage(g_hMainWindow, WM_ANALYSIS_COMPLETE, 0, 0);

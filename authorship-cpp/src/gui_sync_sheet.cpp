@@ -244,6 +244,11 @@ static void syncRunThread(HWND sheet, std::vector<SyncBlockNode>* blocks,
 }
 
 // ── Tree population (SHEET_CHOOSE) ─────────────────────────────
+static std::wstring syncBlockHeaderLabel(const SyncBlockNode& block, int checkedCount) {
+    return s2w(block.label) + L"    " + std::to_wstring(checkedCount) + L" of " +
+           std::to_wstring(block.rows.size()) + L" selected";
+}
+
 static void populateSyncTree() {
     if (!g_hSyncTree) return;
     TreeView_DeleteAllItems(g_hSyncTree);
@@ -252,9 +257,7 @@ static void populateSyncTree() {
         int checkedCount = 0;
         for (auto& r : block.rows) if (r.checked) ++checkedCount;
 
-        std::wstring parentLabel = s2w(block.label) + L"    " +
-            std::to_wstring(checkedCount) + L" of " +
-            std::to_wstring(block.rows.size()) + L" selected";
+        std::wstring parentLabel = syncBlockHeaderLabel(block, checkedCount);
 
         TVINSERTSTRUCTW tvi = {};
         tvi.hParent = TVI_ROOT;
@@ -283,6 +286,48 @@ static void populateSyncTree() {
         }
         TreeView_Expand(g_hSyncTree, parent, TVE_EXPAND);
     }
+}
+
+// A checkbox in the tree was toggled by the user (click or Space —
+// see WM_NOTIFY). Reads the item's real check state rather than
+// assuming a flip, so a double-click can't leave the model out of step
+// with what's drawn. A block header cascades to its rows; a row
+// updates its own model entry. Either way the header's tick and
+// "N of M selected" label are brought back in line with the rows.
+static void onSyncTreeToggled(HWND hwnd, HTREEITEM item) {
+    if (!g_hSyncTree || !item) return;
+    TVITEMW ti = {};
+    ti.mask = TVIF_PARAM;
+    ti.hItem = item;
+    if (!TreeView_GetItem(g_hSyncTree, &ti)) return;
+    bool checked = TreeView_GetCheckState(g_hSyncTree, item) == 1;
+
+    HTREEITEM header = (ti.lParam == -1) ? item : TreeView_GetParent(g_hSyncTree, item);
+    SyncBlockNode* block = nullptr;
+    for (auto& b : g_syncBlocks) if (b.treeItem == header) { block = &b; break; }
+    if (!block) return;
+
+    if (ti.lParam == -1) {
+        for (auto& r : block->rows) r.checked = checked;
+        for (HTREEITEM c = TreeView_GetChild(g_hSyncTree, header); c;
+             c = TreeView_GetNextSibling(g_hSyncTree, c))
+            TreeView_SetCheckState(g_hSyncTree, c, checked);
+    } else {
+        size_t rowIdx = (size_t)(ti.lParam % 10000);
+        if (rowIdx < block->rows.size()) block->rows[rowIdx].checked = checked;
+    }
+
+    int checkedCount = 0;
+    for (auto& r : block->rows) if (r.checked) ++checkedCount;
+    std::wstring label = syncBlockHeaderLabel(*block, checkedCount);
+    TVITEMW hi = {};
+    hi.mask = TVIF_TEXT;
+    hi.hItem = header;
+    hi.pszText = const_cast<wchar_t*>(label.c_str());
+    TreeView_SetItem(g_hSyncTree, &hi);
+    TreeView_SetCheckState(g_hSyncTree, header, checkedCount == (int)block->rows.size());
+
+    InvalidateRect(hwnd, nullptr, FALSE); // refresh footer label
 }
 
 // Recomputes the footer button label — "Sync N assignments from M
@@ -385,9 +430,15 @@ static void openSyncSheet(HWND parent) {
     // over the native control.
     g_hSyncTree = CreateWindowExW(0, WC_TREEVIEWW, L"",
         WS_CHILD | WS_BORDER | WS_VISIBLE | WS_VSCROLL |
-        TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_CHECKBOXES,
+        TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT,
         S(20), S(130), S(SHEET_W_DESIGN) - S(40), S(300),
         g_hSyncSheet, nullptr, hInst, nullptr);
+    // TVS_CHECKBOXES must be added AFTER creation (documented tree-view
+    // quirk): passed to CreateWindow, the checkbox images aren't ready
+    // yet and every TreeView_SetCheckState(..., TRUE) during populate is
+    // dropped — rows were selected but drawn unchecked.
+    SetWindowLongW(g_hSyncTree, GWL_STYLE,
+                   GetWindowLongW(g_hSyncTree, GWL_STYLE) | TVS_CHECKBOXES);
     SendMessage(g_hSyncTree, WM_SETFONT, (WPARAM)g_hFontBodyNew, TRUE);
 
     // Native tree-view controls default to a white background — jarring
@@ -922,44 +973,34 @@ static LRESULT CALLBACK SyncSheetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         }
 
         case WM_NOTIFY: {
+            // Checkbox toggles. The app loads comctl32 v5 (no manifest),
+            // which never sends TVN_ITEMCHANGED — so detect the two ways
+            // a user flips a checkbox (click on the box, Space on the
+            // selected row) and post ourselves a message. The tree flips
+            // the state only after this notification returns, so the
+            // posted handler is what gets to read the new state.
             NMHDR* nm = (NMHDR*)lParam;
-            if (nm->hwndFrom == g_hSyncTree && nm->code == TVN_ITEMCHANGEDW) {
-                NMTVITEMCHANGE* ic = (NMTVITEMCHANGE*)lParam;
-                LPARAM lp = 0;
-                TVITEMW item = {};
-                item.mask = TVIF_PARAM;
-                item.hItem = ic->hItem;
-                TreeView_GetItem(g_hSyncTree, &item);
-                lp = item.lParam;
-                bool checked = TreeView_GetCheckState(g_hSyncTree, ic->hItem) != 0;
-
-                if (lp == -1) {
-                    // Block header toggled — cascade to all children
-                    HTREEITEM child = TreeView_GetChild(g_hSyncTree, ic->hItem);
-                    while (child) {
-                        TreeView_SetCheckState(g_hSyncTree, child, checked);
-                        TVITEMW ci = {};
-                        ci.mask = TVIF_PARAM;
-                        ci.hItem = child;
-                        TreeView_GetItem(g_hSyncTree, &ci);
-                        int blockIdx = (int)(ci.lParam / 10000);
-                        int rowIdx   = (int)(ci.lParam % 10000);
-                        if (blockIdx >= 0 && blockIdx < (int)g_syncBlocks.size() &&
-                            rowIdx  >= 0 && rowIdx  < (int)g_syncBlocks[blockIdx].rows.size())
-                            g_syncBlocks[blockIdx].rows[rowIdx].checked = checked;
-                        child = TreeView_GetNextSibling(g_hSyncTree, child);
-                    }
-                } else {
-                    int blockIdx = (int)(lp / 10000);
-                    int rowIdx   = (int)(lp % 10000);
-                    if (blockIdx >= 0 && blockIdx < (int)g_syncBlocks.size() &&
-                        rowIdx  >= 0 && rowIdx  < (int)g_syncBlocks[blockIdx].rows.size())
-                        g_syncBlocks[blockIdx].rows[rowIdx].checked = checked;
+            if (nm->hwndFrom == g_hSyncTree) {
+                if (nm->code == NM_CLICK || nm->code == NM_DBLCLK) {
+                    DWORD pos = GetMessagePos();
+                    TVHITTESTINFO ht = {};
+                    ht.pt.x = GET_X_LPARAM(pos);
+                    ht.pt.y = GET_Y_LPARAM(pos);
+                    ScreenToClient(g_hSyncTree, &ht.pt);
+                    if (TreeView_HitTest(g_hSyncTree, &ht) && (ht.flags & TVHT_ONITEMSTATEICON))
+                        PostMessage(hwnd, WM_SYNC_TREE_TOGGLED, 0, (LPARAM)ht.hItem);
+                } else if (nm->code == TVN_KEYDOWN &&
+                           ((NMTVKEYDOWN*)lParam)->wVKey == VK_SPACE) {
+                    HTREEITEM sel = TreeView_GetSelection(g_hSyncTree);
+                    if (sel) PostMessage(hwnd, WM_SYNC_TREE_TOGGLED, 0, (LPARAM)sel);
                 }
-                InvalidateRect(hwnd, nullptr, FALSE); // refresh footer label
             }
             return 0;
         }
+
+        case WM_SYNC_TREE_TOGGLED:
+            onSyncTreeToggled(hwnd, (HTREEITEM)lParam);
+            return 0;
 
         case WM_KEYDOWN:
             // Compliance fix item 2: Esc must close sheets. Reuses

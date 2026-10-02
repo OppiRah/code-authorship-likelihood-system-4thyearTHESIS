@@ -4,6 +4,7 @@
 // Uses WinHTTP (Windows native) for HTTPS — no external libs needed
 // ─────────────────────────────────────────────────────────────
 
+#include "../include/secret_store.h"
 #include "../include/gemini.h"
 
 #include <fstream>
@@ -111,11 +112,22 @@ static std::string extractTextFromJson(const std::string& json) {
 // ═════════════════════════════════════════════════════════════
 
 std::string loadApiKey() {
-    std::ifstream f("api_key.txt");
-    if (!f.is_open()) return "";
-
+    // Windows Credential Manager (see secret_store.h) — no file, no
+    // dependency on the working directory.
     std::string key;
-    std::getline(f, key);
+    if (!secretRead(SECRET_GEMINI_KEY, key)) {
+        // Not stored yet: one-time import of a legacy api_key.txt. The
+        // GUI runs this at startup and tells the user; this covers the
+        // command-line path, which reports it on stderr.
+        LegacySecretMigration m = migrateLegacySecretFiles();
+        if (m.geminiMigrated)
+            fprintf(stderr, "CALSS: moved api_key.txt into Windows Credential Manager "
+                            "and deleted the file.\n");
+        if (m.tokenMigrated)
+            fprintf(stderr, "CALSS: moved calss_gc_token.json into Windows Credential "
+                            "Manager and deleted the file.\n");
+        if (!secretRead(SECRET_GEMINI_KEY, key)) return "";
+    }
 
     // Trim whitespace
     while (!key.empty() && (key.back() == '\n' || key.back() == '\r' ||
@@ -123,12 +135,16 @@ std::string loadApiKey() {
         key.pop_back();
     while (!key.empty() && (key.front() == ' ' || key.front() == '\t'))
         key.erase(key.begin());
-
-    // Check if it's still the placeholder
-    if (key == "PASTE_YOUR_GEMINI_API_KEY_HERE") return "";
-
     return key;
 }
+
+bool gemini_hasKey() { return !loadApiKey().empty(); }
+
+bool gemini_saveKey(const std::string& key) {
+    return !key.empty() && secretWrite(SECRET_GEMINI_KEY, key);
+}
+
+bool gemini_removeKey() { return secretDelete(SECRET_GEMINI_KEY); }
 
 // ═════════════════════════════════════════════════════════════
 // PROMPT BUILDING
@@ -225,6 +241,47 @@ std::string buildPrompt(const std::vector<PairResult>& flagged,
 // ═════════════════════════════════════════════════════════════
 
 #ifdef _WIN32
+// "Test key" (AI settings dialog): one GET of the model's own metadata.
+// It authenticates exactly like a real request but generates nothing,
+// so it costs no generation quota. 200 = the key works.
+bool gemini_testKey(const std::string& apiKey, std::string& error) {
+    error.clear();
+    if (apiKey.empty()) { error = "No key entered."; return false; }
+    HINTERNET hSession = WinHttpOpen(L"AuthorshipScorer/1.0",
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) { error = "Could not open an HTTP session."; return false; }
+    HINTERNET hConnect = WinHttpConnect(hSession, L"generativelanguage.googleapis.com",
+                                        INTERNET_DEFAULT_HTTPS_PORT, 0);
+    HINTERNET hRequest = hConnect ? WinHttpOpenRequest(hConnect, L"GET",
+        L"/v1beta/models/gemini-2.5-flash-lite", nullptr, WINHTTP_NO_REFERER,
+        WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : nullptr;
+    bool ok = false;
+    if (hRequest) {
+        std::wstring headers = L"x-goog-api-key: " + toWide(apiKey) + L"\r\n";
+        if (WinHttpSendRequest(hRequest, headers.c_str(), (DWORD)-1L,
+                               WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+            WinHttpReceiveResponse(hRequest, nullptr)) {
+            DWORD status = 0, sz = sizeof(status);
+            WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                                nullptr, &status, &sz, nullptr);
+            if (status == 200) ok = true;
+            else if (status == 400 || status == 401 || status == 403)
+                error = "Google rejected this key (HTTP " + std::to_string(status) +
+                        "). Check that it was copied completely.";
+            else
+                error = "Unexpected reply from Google (HTTP " + std::to_string(status) + ").";
+        } else {
+            error = "Could not reach Google. Check the internet connection.";
+        }
+    } else {
+        error = "Could not reach Google. Check the internet connection.";
+    }
+    if (hRequest) WinHttpCloseHandle(hRequest);
+    if (hConnect) WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    return ok;
+}
+
 static std::string callGeminiAPI(const std::string& apiKey,
                                    const std::string& prompt,
                                    std::string& error)
@@ -256,10 +313,10 @@ static std::string callGeminiAPI(const std::string& apiKey,
         return "";
     }
 
-    // Build request path with API key
+    // Request path — the API key travels in the x-goog-api-key header
+    // below, not in the URL (URLs end up in proxy/server logs).
     std::wstring path =
-        L"/v1beta/models/gemini-2.5-flash-lite:generateContent?key=" +
-        toWide(apiKey);
+        L"/v1beta/models/gemini-2.5-flash-lite:generateContent";
 
     HINTERNET hRequest = WinHttpOpenRequest(
         hConnect, L"POST", path.c_str(),
@@ -273,12 +330,13 @@ static std::string callGeminiAPI(const std::string& apiKey,
         return "";
     }
 
-    // Set Content-Type header
-    LPCWSTR headers = L"Content-Type: application/json\r\n";
+    // Content-Type + API key headers
+    std::wstring headers = L"Content-Type: application/json\r\n"
+                           L"x-goog-api-key: " + toWide(apiKey) + L"\r\n";
 
     // Send request
     BOOL ok = WinHttpSendRequest(
-        hRequest, headers, -1,
+        hRequest, headers.c_str(), (DWORD)-1L,
         (LPVOID)bodyStr.data(), (DWORD)bodyStr.size(),
         (DWORD)bodyStr.size(), 0);
     if (!ok) {
@@ -510,8 +568,16 @@ static std::string buildCrossPairPrompt(
               "invent a shared cause -- if nothing overlaps, say so plainly "
               "as the single finding.\n";
     prompt << "- Never use the words 'cheated' or 'plagiarized'.\n";
-    prompt << "- Reference students and pairs by name/number when pointing "
-              "out an overlap.\n";
+    prompt << "- Whenever you mention a specific pair, cite it as 'Pair N' "
+              "using the number from its '--- PAIR N' header below, e.g. "
+              "'Pair 3 (CastroBryan vs DizonCzarina)'. For several pairs "
+              "write 'Pairs 1, 3 and 12'. Never refer to a pair by student "
+              "names alone -- the 'Pair N' number is what the instructor "
+              "clicks to open that pair.\n";
+    prompt << "- Cite at most 5 pairs per finding. When a pattern spans more "
+              "pairs than that, give the total and name the lowest-numbered "
+              "(highest-scoring) examples, e.g. 'shared by 112 pairs, "
+              "including Pairs 1, 8 and 10'. Never list every pair.\n";
     prompt << "- Each finding must be self-contained (2-3 sentences max) "
               "and readable on its own, since findings are shown as "
               "separate items, not one continuous paragraph.\n";

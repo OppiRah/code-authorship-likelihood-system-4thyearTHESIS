@@ -12,6 +12,7 @@
 #include <shlobj.h>
 
 #include "../include/google_classroom.h"
+#include "../include/secret_store.h"
 
 #include <string>
 #include <vector>
@@ -106,14 +107,21 @@ static std::string toNarrow(const std::wstring& w) {
 }
 
 // ── Token storage ─────────────────────────────────────────────
+// The token JSON (same shape as the old calss_gc_token.json) lives in
+// Windows Credential Manager, not a file next to the exe — see
+// secret_store.h. Only WHERE it's stored changed: the OAuth sign-in,
+// refresh and sign-out flows below read/write it exactly as before.
 static GCToken g_token;
 static bool    g_tokenLoaded = false;
 
 static bool loadToken() {
-    std::ifstream f(GC_TOKEN_FILE);
-    if (!f.is_open()) return false;
-    std::string json((std::istreambuf_iterator<char>(f)),
-                      std::istreambuf_iterator<char>());
+    std::string json;
+    if (!secretRead(SECRET_GC_TOKEN, json)) {
+        // Not stored yet: one-time import of a legacy token file (the
+        // GUI normally does this at startup, with a notice).
+        migrateLegacySecretFiles();
+        if (!secretRead(SECRET_GC_TOKEN, json)) return false;
+    }
     g_token.accessToken  = jsonGet(json, "access_token");
     g_token.refreshToken = jsonGet(json, "refresh_token");
     std::string exp = jsonGet(json, "expires_at");
@@ -122,13 +130,23 @@ static bool loadToken() {
     return g_tokenLoaded;
 }
 
-static void saveToken() {
-    std::ofstream f(GC_TOKEN_FILE);
+// False if Windows Credential Manager refused the write. There is NO
+// file fallback: the token then lives only in memory for this session,
+// and the sign-in path below tells the user (next launch = sign in again).
+static bool          g_tokenSaveFailed = false;
+static unsigned long g_tokenSaveError  = 0;
+
+static bool saveToken() {
+    std::ostringstream f;
     f << "{\n"
       << "  \"access_token\": \"" << g_token.accessToken << "\",\n"
       << "  \"refresh_token\": \"" << g_token.refreshToken << "\",\n"
       << "  \"expires_at\": " << g_token.expiresAt << "\n"
       << "}\n";
+    bool ok = secretWrite(SECRET_GC_TOKEN, f.str());
+    g_tokenSaveFailed = !ok;
+    g_tokenSaveError  = ok ? 0 : secretLastError();
+    return ok;
 }
 
 bool gc_hasValidToken() {
@@ -141,7 +159,8 @@ bool gc_hasValidToken() {
 void gc_signOut() {
     g_token = {};
     g_tokenLoaded = false;
-    DeleteFileA(GC_TOKEN_FILE);
+    secretDelete(SECRET_GC_TOKEN);
+    DeleteFileA(GC_TOKEN_FILE);  // any stray legacy plaintext copy
 }
 
 // ── WinHTTP HTTPS helper ──────────────────────────────────────
@@ -554,6 +573,18 @@ bool gc_authenticate(HWND parent, const GCCredentials& creds, bool /*unused*/) {
             L"Authentication Failed",
             MB_OK | MB_ICONERROR);
         return false;
+    }
+
+    if (g_tokenSaveFailed) {
+        std::wstring msg =
+            L"Google Classroom is connected for this session, but CALSS could not "
+            L"save your sign-in to Windows Credential Manager (Windows error " +
+            std::to_wstring(g_tokenSaveError) + L").\n\n"
+            L"Nothing was written to a file. You will need to sign in again the "
+            L"next time you open CALSS.";
+        MessageBoxW(parent, msg.c_str(), L"Connected \u2014 sign-in not saved",
+                    MB_OK | MB_ICONWARNING);
+        return true;
     }
 
     MessageBoxW(parent,

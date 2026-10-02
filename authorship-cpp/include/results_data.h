@@ -104,6 +104,13 @@ struct StudentProfileSummary {
     // value as bar HEIGHT rather than color — making a student's
     // fingerprint a glanceable shape. Empty if unavailable.
     std::vector<double> featureVector;
+
+    // Each profile-building submission's path and 14 RAW feature values
+    // (parallel vectors). Display-only: the "View source" style-change
+    // highlight builds a leave-one-out baseline (mean + spread) from
+    // these. Never read by scoring.
+    std::vector<std::string>         submissionPaths;
+    std::vector<std::vector<double>> submissionRaw;
 };
 
 struct PairRow {
@@ -126,7 +133,6 @@ struct AnalysisResults {
     double maxScore;
     double averageScore;
     std::string dataFolder;
-    std::string reportPath;
     std::string timestamp;
 
     bool        aiSummarySuccess;

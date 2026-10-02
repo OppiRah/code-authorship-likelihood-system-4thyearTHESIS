@@ -4,6 +4,7 @@
 // Stage 4: Wired analysis pipeline + UL color palette
 // ─────────────────────────────────────────────────────────────
 #include "../include/gui_common.h"
+#include <tuple>
 
 #ifdef _WIN32
 
@@ -55,7 +56,7 @@ int  g_contentFadeAlpha = 255;  // 0-255, 255 = fully opaque
 // ── Menu and control IDs ──────────────────────────────────────
 
 
-AppState g_state = {L"", 0, false, false, false, L"", L""};
+AppState g_state = {L"", 0, false, false, false, L""};
 
 // ── Window handles ────────────────────────────────────────────
 HWND g_hMainWindow = nullptr;
@@ -89,16 +90,25 @@ AppModal g_appModal;
 static RECT g_modalPrimaryBtnRect = {};
 static RECT g_modalSecondaryBtnRect = {};
 static RECT g_sourceViewCloseBtnRect = {}; // MODAL_SOURCE_VIEW's own close ("x") button
+static RECT g_sourceViewLegendBtnRect = {}; // compare mode's "How to read" toggle (empty otherwise)
 // MODAL_SOURCE_VIEW compare mode's toolbar hit rects (empty when not
 // shown / not clickable) — set by drawSourceViewModal each paint.
 static RECT g_sourceViewTabRects[2] = {};
 static RECT g_sourceViewPrevRect = {};
 static RECT g_sourceViewNextRect = {};
-// Compare-mode match highlight: dark red fill, bright red left bar,
+// Compare-mode style-change highlight: dark red fill, bright red left bar,
 // light text — readable on the modal's GRAY_900 card.
-static const COLORREF SOURCE_MATCH_BG   = RGB(104, 26, 32);
-static const COLORREF SOURCE_MATCH_BAR  = RGB(230, 80, 80);
-static const COLORREF SOURCE_MATCH_TEXT = RGB(255, 226, 226);
+static const COLORREF SOURCE_STYLE_BG   = RGB(104, 26, 32);
+static const COLORREF SOURCE_STYLE_BAR  = RGB(230, 80, 80);
+static const COLORREF SOURCE_STYLE_TEXT = RGB(255, 226, 226);
+// Compare-mode match highlight: a translucent gold wash (so a line that
+// is also red still shows its red underneath) plus a solid gold left bar.
+// At ~40% alpha the text keeps >= 4.5:1 contrast on both GRAY_900
+// (~6.9:1) and the red fill (~4.9:1).
+static const COLORREF SOURCE_MATCH_FILL  = GOLD_500;
+static const BYTE     SOURCE_MATCH_ALPHA = 100;
+static const COLORREF SOURCE_MATCH_BAR   = GOLD_400;
+static const COLORREF SOURCE_MATCH_TEXT  = RGB(255, 244, 214);
 // Keyboard focus (item 2): which of the modal's own buttons is
 // currently focused. Reset to the primary button whenever a modal
 // opens; Tab toggles it (see the main message loop); Enter activates
@@ -216,7 +226,7 @@ void openSourceViewModal(const std::wstring& label, const std::wstring& subtitle
     if (g_hContent) InvalidateRect(g_hContent, nullptr, FALSE);
 }
 
-// ── "View source" compare mode: display-only line matching ────────
+// ── "View source" compare mode: gold line-match highlight ─────────
 // Lines with fewer normalized tokens than this are left out of the
 // match entirely (neither highlighted nor used as an LCS anchor) —
 // `}`, `i++;`, `return 0;` appear in nearly every submission and
@@ -230,8 +240,8 @@ static const size_t SOURCE_MATCH_MAX_SIG_LINES = 2000;
 // tokenizer.cpp's own cleaning + normalizeTokens (per line, so renamed
 // variables still match — see normalizeSourceLines), then a line-level
 // LCS over the significant lines pairs them up in order. Fills
-// partner/highlight/runStarts on both sides; returns the matched-line
-// count, or -1 with `note` set if matching couldn't run.
+// partner/matchHighlight/matchRunStarts on both sides; returns the
+// matched-line count, or -1 with `note` set if matching couldn't run.
 static int computeSourceLineMatches(const std::string& rawA, SourceViewSide& a,
                                      const std::string& rawB, SourceViewSide& b,
                                      std::wstring& note)
@@ -239,8 +249,8 @@ static int computeSourceLineMatches(const std::string& rawA, SourceViewSide& a,
     SourceViewSide* sides[2] = {&a, &b};
     for (SourceViewSide* s : sides) {
         s->partner.assign(s->lines.size(), -1);
-        s->highlight.assign(s->lines.size(), 0);
-        s->runStarts.clear();
+        s->matchHighlight.assign(s->lines.size(), 0);
+        s->matchRunStarts.clear();
     }
 
     std::vector<std::vector<std::string>> normA, normB;
@@ -296,9 +306,9 @@ static int computeSourceLineMatches(const std::string& rawA, SourceViewSide& a,
         int prevMatched = -1;
         for (int li : sig) {
             if (s.partner[li] >= 0) {
-                if (prevMatched < 0) s.runStarts.push_back(li);
-                else for (int k = prevMatched + 1; k < li; ++k) s.highlight[k] = 1;
-                s.highlight[li] = 1;
+                if (prevMatched < 0) s.matchRunStarts.push_back(li);
+                else for (int k = prevMatched + 1; k < li; ++k) s.matchHighlight[k] = 1;
+                s.matchHighlight[li] = 1;
                 prevMatched = li;
             } else {
                 prevMatched = -1;
@@ -310,11 +320,118 @@ static int computeSourceLineMatches(const std::string& rawA, SourceViewSide& a,
     return matched;
 }
 
-// Opens MODAL_SOURCE_VIEW in compare mode for a flagged pair. Either
-// file missing degrades to the same fallback message as single-file
-// mode on that side, with highlighting off for both (nothing to match).
+// ── "View source": style-change highlight (display-only) ──────────
+// Red = a function that breaks this student's OWN established pattern.
+// Baseline: the student's profile-building submissions (Activity/Quiz)
+// minus the file being viewed (leave-one-out), as a per-feature mean
+// and spread. Only the four formatting features measureFunctionStyles
+// (features.h) reports are judged — naming is left out because
+// activities often hand out variable names. Never fed back into scoring.
+static const int    STYLE_MIN_HISTORY = 3;   // prior submissions needed to judge a feature
+static const double STYLE_SPREAD_MULT = 2.0; // "changed" = beyond 2x the student's usual spread...
+// ...or this floor, whichever is larger (raw units: the same tolerances
+// compareStyles uses file-level; line length = 0.15 x 80 chars). Keeps
+// a very consistent student from being flagged over noise.
+static const double STYLE_FLOOR[BLOCK_STYLE_COUNT] = {0.30, 0.25, 0.20, 12.0};
+static const int    STYLE_MIN_CHANGED = 2;   // features that must change together to flag
+
+static std::string normPathKey(std::string p) {
+    for (auto& c : p) c = (c == '\\') ? '/' : (char)tolower((unsigned char)c);
+    return p;
+}
+
+static std::wstring describeStyleChange(int k, double v, double mean) {
+    switch (k) {
+    case 0:  return v < mean ? L"braces on next line (usually same line)"
+                             : L"braces on same line (usually next line)";
+    case 1:  return v < mean ? L"operators unspaced (usually spaced)"
+                             : L"operators spaced (usually unspaced)";
+    case 2:  return v > mean ? L"more inline comments than usual"
+                             : L"fewer inline comments than usual";
+    default: return L"lines ~" + std::to_wstring((int)(v + 0.5)) +
+                    L" chars (usually ~" + std::to_wstring((int)(mean + 0.5)) + L")";
+    }
+}
+
+// Fills highlight/runStarts/flagReason/flagCount on `s` (or styleNote
+// when no judgment can be made) for the file at `path`, owned by
+// `student`, whose capped bytes are `raw`.
+static void computeStyleChanges(const std::string& raw, const std::string& path,
+                                const std::string& student, SourceViewSide& s)
+{
+    s.highlight.assign(s.lines.size(), 0);
+    s.flagReason.assign(s.lines.size(), std::wstring());
+    s.runStarts.clear();
+    s.flagCount = 0;
+
+    const StudentProfileSummary* prof = nullptr;
+    for (const auto& p : g_analysisResults.profiles)
+        if (p.name == student) { prof = &p; break; }
+    if (!prof) { s.styleNote = L"no style profile for this student"; return; }
+
+    // Leave-one-out: this file never counts toward its own baseline.
+    std::string self = normPathKey(path);
+    std::vector<const std::vector<double>*> hist;
+    for (size_t i = 0; i < prof->submissionRaw.size(); ++i)
+        if (i >= prof->submissionPaths.size() || normPathKey(prof->submissionPaths[i]) != self)
+            hist.push_back(&prof->submissionRaw[i]);
+    if ((int)hist.size() < STYLE_MIN_HISTORY) {
+        s.styleNote = L"not enough history to judge (" + std::to_wstring(hist.size()) +
+                      (hist.size() == 1 ? L" prior submission" : L" prior submissions") +
+                      L", needs " + std::to_wstring(STYLE_MIN_HISTORY) + L")";
+        return;
+    }
+
+    // Per-feature baseline. Inline-comment ratio only counts
+    // submissions that had comments at all (raw[4] > 0) — otherwise
+    // its 0 means "undefined", not "never inline".
+    bool   judged[BLOCK_STYLE_COUNT];
+    double mean[BLOCK_STYLE_COUNT], limit[BLOCK_STYLE_COUNT];
+    for (int k = 0; k < BLOCK_STYLE_COUNT; ++k) {
+        int f = BLOCK_STYLE_FEATURE[k];
+        std::vector<double> vals;
+        for (const auto* v : hist)
+            if (f != 5 || (*v)[4] > 0.0) vals.push_back((*v)[f]);
+        judged[k] = (int)vals.size() >= STYLE_MIN_HISTORY;
+        if (!judged[k]) continue;
+        double sum = 0.0;
+        for (double x : vals) sum += x;
+        mean[k] = sum / vals.size();
+        double var = 0.0;
+        for (double x : vals) var += (x - mean[k]) * (x - mean[k]);
+        double sd = std::sqrt(var / (vals.size() - 1));
+        limit[k] = std::max(STYLE_SPREAD_MULT * sd, STYLE_FLOOR[k]);
+    }
+
+    for (const BlockStyle& b : measureFunctionStyles(raw)) {
+        if (b.startLine >= (int)s.lines.size()) break;
+        std::wstring reason;
+        int changed = 0;
+        for (int k = 0; k < BLOCK_STYLE_COUNT; ++k) {
+            if (!b.has[k] || !judged[k]) continue;
+            if (std::fabs(b.value[k] - mean[k]) <= limit[k]) continue;
+            ++changed;
+            if (!reason.empty()) reason += L"  ·  ";
+            reason += describeStyleChange(k, b.value[k], mean[k]);
+        }
+        if (changed < STYLE_MIN_CHANGED) continue;
+        int end = std::min(b.endLine, (int)s.lines.size() - 1);
+        for (int li = b.startLine; li <= end; ++li) s.highlight[li] = 1;
+        s.runStarts.push_back(b.startLine);
+        s.flagReason[b.startLine] = reason;
+        ++s.flagCount;
+    }
+}
+
+// Opens MODAL_SOURCE_VIEW in compare mode for a flagged pair.
+// Gold (line matches) needs both files — either one missing turns it
+// off for both sides, with a note. Red (style changes) judges each file
+// against its OWN student's profile, independently — a missing file
+// only loses its own side's red.
 void openSourceCompareModal(const std::string& pathA, const std::wstring& labelA,
+                             const std::string& studentA,
                              const std::string& pathB, const std::wstring& labelB,
+                             const std::string& studentB,
                              bool showA)
 {
     SourceViewSide sa, sb;
@@ -327,26 +444,36 @@ void openSourceCompareModal(const std::string& pathA, const std::wstring& labelA
     m.sourceCompare = true;
 
     if (sa.missing || sb.missing) {
-        sa.partner.assign(sa.lines.size(), -1); sa.highlight.assign(sa.lines.size(), 0);
-        sb.partner.assign(sb.lines.size(), -1); sb.highlight.assign(sb.lines.size(), 0);
-        m.sourceCompareNote = std::wstring(L"match highlighting unavailable — File ") +
-                              (sa.missing ? L"A" : L"B") + L" couldn't be read";
+        sa.partner.assign(sa.lines.size(), -1); sa.matchHighlight.assign(sa.lines.size(), 0);
+        sb.partner.assign(sb.lines.size(), -1); sb.matchHighlight.assign(sb.lines.size(), 0);
+        m.sourceMatchNote = std::wstring(L"match highlighting unavailable — File ") +
+                            (sa.missing ? L"A" : L"B") + L" couldn't be read";
     } else {
-        m.sourceMatchCount = computeSourceLineMatches(rawA, sa, rawB, sb, m.sourceCompareNote);
+        m.sourceMatchCount = computeSourceLineMatches(rawA, sa, rawB, sb, m.sourceMatchNote);
         if (m.sourceMatchCount < 0) m.sourceMatchCount = 0;
     }
 
+    if (sa.missing) sa.styleNote = L"file couldn't be read";
+    else            computeStyleChanges(rawA, pathA, studentA, sa);
+    if (sb.missing) sb.styleNote = L"file couldn't be read";
+    else            computeStyleChanges(rawB, pathB, studentB, sb);
+
     SourceViewSide& shown = showA ? sa : sb;
-    m.sourceSide      = showA ? 0 : 1;
-    m.title           = shown.title;
-    m.sourceLines     = std::move(shown.lines);
-    m.sourceSubtitle  = shown.subtitle;
-    m.sourceMissing   = shown.missing;
-    m.sourceTruncated = shown.truncated;
-    m.sourcePartner   = std::move(shown.partner);
-    m.sourceHighlight = std::move(shown.highlight);
-    m.sourceRunStarts = std::move(shown.runStarts);
-    m.sourceOther     = std::move(showA ? sb : sa);
+    m.sourceSide       = showA ? 0 : 1;
+    m.title            = shown.title;
+    m.sourceLines      = std::move(shown.lines);
+    m.sourceSubtitle   = shown.subtitle;
+    m.sourceMissing    = shown.missing;
+    m.sourceTruncated  = shown.truncated;
+    m.sourcePartner        = std::move(shown.partner);
+    m.sourceMatchHighlight = std::move(shown.matchHighlight);
+    m.sourceMatchRunStarts = std::move(shown.matchRunStarts);
+    m.sourceHighlight  = std::move(shown.highlight);
+    m.sourceRunStarts  = std::move(shown.runStarts);
+    m.sourceFlagReason = std::move(shown.flagReason);
+    m.sourceFlagCount  = shown.flagCount;
+    m.sourceStyleNote  = shown.styleNote;
+    m.sourceOther      = std::move(showA ? sb : sa);
 
     g_appModal = std::move(m);
     g_modalFocusOnPrimary = true;
@@ -614,10 +741,13 @@ static void createFonts() {
     g_hFontH1      = mkFont(S(28), FW_SEMIBOLD, DISP_FACE);
     g_hFontH2      = mkFont(S(20), FW_SEMIBOLD, UI_FACE);
     g_hFontBodyNew = mkFont(S(16), FW_NORMAL,   UI_FACE);
-    g_hFontLabel   = mkFont(S(12), FW_SEMIBOLD, UI_FACE);
-    g_hFontMono    = mkFont(S(14), FW_NORMAL,   MONO_FACE, true);
+    // Readability floor (2026-10-01): the two smallest tiers were 12px
+    // cells (~9px glyphs) — eyebrows, file names, the context strip.
+    // Raised to 14 so no app text renders below ~10.5px; code text to 15.
+    g_hFontLabel   = mkFont(S(14), FW_SEMIBOLD, UI_FACE);
+    g_hFontMono    = mkFont(S(15), FW_NORMAL,   MONO_FACE, true);
     g_hFontStat    = mkFont(S(48), FW_SEMIBOLD, DISP_FACE);
-    g_hFontMonoSm  = mkFont(S(12), FW_NORMAL,   MONO_FACE, true);
+    g_hFontMonoSm  = mkFont(S(14), FW_NORMAL,   MONO_FACE, true);
 
     // Legacy handles — existing screens still bind these. Mapped onto
     // the new scale so every unmigrated screen inherits correct sizing
@@ -652,6 +782,26 @@ static void destroyFonts() {
 // ═════════════════════════════════════════════════════════════
 // UPDATE UI BASED ON STATE
 // ═════════════════════════════════════════════════════════════
+std::vector<RECT> g_aiSetupLinkRects;
+static RECT g_sidebarAiLinkRect = {};
+static void layoutSidebarControls(HWND hSidebar);
+
+void syncAiSummaryCheckbox(bool tickIfEnabled) {
+    if (!g_hChkAiSummary) return;
+    bool has = aiKeyConfigured();
+    if (!has) {
+        SendMessageW(g_hChkAiSummary, BM_SETCHECK, BST_UNCHECKED, 0);
+        EnableWindow(g_hChkAiSummary, FALSE);
+    } else {
+        EnableWindow(g_hChkAiSummary, !g_state.analysisRunning);
+        if (tickIfEnabled) SendMessageW(g_hChkAiSummary, BM_SETCHECK, BST_CHECKED, 0);
+    }
+    if (g_hSidebar) {
+        layoutSidebarControls(g_hSidebar);
+        InvalidateRect(g_hSidebar, nullptr, FALSE);
+    }
+}
+
 void updateUI() {
     bool canRun = g_state.hasData && !g_state.analysisRunning;
 
@@ -659,7 +809,10 @@ void updateUI() {
     if (g_hBtnSelectFolder) EnableWindow(g_hBtnSelectFolder, !g_state.analysisRunning);
     if (g_hBtnImportFiles)  EnableWindow(g_hBtnImportFiles,  !g_state.analysisRunning);
     if (g_hBtnGClassroom)   EnableWindow(g_hBtnGClassroom,   !g_state.analysisRunning);
-    if (g_hChkAiSummary)    EnableWindow(g_hChkAiSummary,    !g_state.analysisRunning);
+    // No Gemini key saved → the AI toggle stays off and disabled (the
+    // sidebar shows a "Set up AI…" link instead); see syncAiSummaryCheckbox.
+    if (g_hChkAiSummary)    EnableWindow(g_hChkAiSummary,
+                                         !g_state.analysisRunning && aiKeyConfigured());
 
     if (g_hStatus) {
         std::wstring statusText;
@@ -783,14 +936,14 @@ static HMENU createMainMenu() {
     AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hFileMenu, MF_STRING, ID_FILE_GCLASSROOM,
                 L"Sync with &Google Classroom...");
+    AppendMenuW(hFileMenu, MF_STRING, ID_FILE_AI_SETTINGS,
+                L"&AI Settings...");
     AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hFileMenu, MF_STRING, ID_FILE_EXIT,
                 L"E&xit\tAlt+F4");
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hFileMenu, L"&File");
 
     HMENU hViewMenu = CreatePopupMenu();
-    AppendMenuW(hViewMenu, MF_STRING, ID_VIEW_REPORT,
-                L"Open Latest &Report in Browser");
     AppendMenuW(hViewMenu, MF_STRING, ID_VIEW_PROFILES,
                 L"View Student &Profiles");
     AppendMenuW(hViewMenu, MF_SEPARATOR, 0, nullptr);
@@ -1088,6 +1241,39 @@ static LRESULT CALLBACK TitleBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 // ═════════════════════════════════════════════════════════════
 // LAYOUT MANAGEMENT
 // ═════════════════════════════════════════════════════════════
+// Sidebar width in design px (scaled through S() at use). Resizable
+// by dragging the sidebar's right edge, clamped to a range where both
+// the sidebar's own text and the content pane stay readable.
+static const int SIDEBAR_MIN_WIDTH = 240;
+static const int SIDEBAR_MAX_WIDTH = 400;
+static const int CONTENT_MIN_WIDTH = 700;  // never squeeze content below this
+static const int SIDEBAR_GRIP      = 6;    // drag zone at the sidebar's right edge
+static int  g_sidebarW        = SIDEBAR_WIDTH;
+static bool g_sidebarDragging = false;
+static bool g_sidebarGripHot  = false;
+
+// Clamps a requested sidebar width (design px) to [MIN, MAX] and to
+// what the current window leaves after CONTENT_MIN_WIDTH.
+static int clampSidebarWidth(int w) {
+    if (g_hMainWindow) {
+        RECT rc; GetClientRect(g_hMainWindow, &rc);
+        int roomForSidebar = (int)(rc.right / g_dpiScale) - CONTENT_MIN_WIDTH;
+        if (w > roomForSidebar) w = roomForSidebar;
+    }
+    if (w > SIDEBAR_MAX_WIDTH) w = SIDEBAR_MAX_WIDTH;
+    if (w < SIDEBAR_MIN_WIDTH) w = SIDEBAR_MIN_WIDTH;
+    return w;
+}
+
+// Top of the sidebar's zone ① (DATA SOURCE), shared by SidebarProc's
+// WM_PAINT and layoutSidebarControls() so the two stay coupled. On
+// short windows (e.g. the 700px minimum) the slack under the seal
+// header is tightened so zone ② (IMPORTED) never runs into the
+// bottom-pinned zone ③ (ANALYSIS).
+static int sidebarZone1Top(int sidebarClientH) {
+    return sidebarClientH >= S(700) ? S(196) : S(164);
+}
+
 static void layoutChildren(HWND hwndParent) {
     RECT rect;
     GetClientRect(hwndParent, &rect);
@@ -1109,11 +1295,13 @@ static void layoutChildren(HWND hwndParent) {
     int contentH = totalH - statusH - bodyTop;
     if (contentH < 0) contentH = 0;
 
+    g_sidebarW = clampSidebarWidth(g_sidebarW);
+    int sideW = S(g_sidebarW);
     if (g_hSidebar)
-        MoveWindow(g_hSidebar, 0, bodyTop, S(SIDEBAR_WIDTH), contentH, TRUE);
+        MoveWindow(g_hSidebar, 0, bodyTop, sideW, contentH, TRUE);
     if (g_hContent)
-        MoveWindow(g_hContent, S(SIDEBAR_WIDTH), bodyTop,
-                    totalW - S(SIDEBAR_WIDTH), contentH, TRUE);
+        MoveWindow(g_hContent, sideW, bodyTop,
+                    totalW - sideW, contentH, TRUE);
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -1194,13 +1382,16 @@ static LRESULT CALLBACK SidebarProc(HWND hwnd, UINT uMsg,
             FillRect(hdc, &rect, bgBr);
             DeleteObject(bgBr);
 
-            // Hairline divider against the content canvas
-            HPEN borderPen = CreatePen(PS_SOLID, 1, GRAY_700);
-            HPEN oldPen = (HPEN)SelectObject(hdc, borderPen);
-            MoveToEx(hdc, rect.right - 1, 0, nullptr);
-            LineTo(hdc, rect.right - 1, rect.bottom);
-            SelectObject(hdc, oldPen);
-            DeleteObject(borderPen);
+            // Hairline divider against the content canvas — gold and
+            // 2px while the resize grip is hovered or being dragged.
+            {
+                bool hot = g_sidebarGripHot || g_sidebarDragging;
+                int dw = hot ? S(2) : 1;
+                RECT div = {rect.right - dw, 0, rect.right, rect.bottom};
+                HBRUSH divBr = CreateSolidBrush(hot ? GOLD_500 : GRAY_700);
+                FillRect(hdc, &div, divBr);
+                DeleteObject(divBr);
+            }
 
             SetBkMode(hdc, TRANSPARENT);
             HFONT oldFont = (HFONT)SelectObject(hdc, g_hFontBodyNew);
@@ -1259,7 +1450,7 @@ static LRESULT CALLBACK SidebarProc(HWND hwnd, UINT uMsg,
             // Fixed at 196 (design px, scaled) to match
             // layoutSidebarControls()'s button origin — see the
             // comment there for the coupling.
-            cy = S(196);
+            cy = sidebarZone1Top(rect.bottom);
             drawEyebrow(hdc, px, cy, pw, L"1  DATA SOURCE");
             cy += S(18);
 
@@ -1286,7 +1477,7 @@ static LRESULT CALLBACK SidebarProc(HWND hwnd, UINT uMsg,
             }
 
             // Buttons occupy 196+18+38+10 .. +3*(BUTTON_HEIGHT+8)
-            int zone1End = S(196) + S(18) + S(38) + S(10) + (S(BUTTON_HEIGHT) + S(8)) * 3;
+            int zone1End = sidebarZone1Top(rect.bottom) + S(18) + S(38) + S(10) + (S(BUTTON_HEIGHT) + S(8)) * 3;
 
             // ── ZONE 2 — IMPORTED ─────────────────────────────
             cy = zone1End + S(8);
@@ -1336,6 +1527,24 @@ static LRESULT CALLBACK SidebarProc(HWND hwnd, UINT uMsg,
                 int eyebrowY = chkY - S(26);
 
                 drawEyebrow(hdc, px, eyebrowY, pw, L"3  ANALYSIS");
+
+                // No Gemini key → "Set up AI…" beside the (disabled) toggle
+                g_sidebarAiLinkRect = RECT{};
+                if (!aiKeyConfigured()) {
+                    SelectObject(hdc, g_hFontBodyNew);
+                    const wchar_t* lt = L"Set up AI\u2026";
+                    SIZE ls; GetTextExtentPoint32W(hdc, lt, (int)wcslen(lt), &ls);
+                    int lx = px + S(176);
+                    if (lx + ls.cx > rect.right - px) lx = rect.right - px - ls.cx;
+                    RECT lr = {lx, chkY, lx + ls.cx, chkY + S(22)};
+                    SetTextColor(hdc, GOLD_500);
+                    DrawTextW(hdc, lt, -1, &lr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                    RECT ul = {lr.left, lr.bottom - S(3), lr.right, lr.bottom - S(2)};
+                    HBRUSH ub = CreateSolidBrush(GOLD_500);
+                    FillRect(hdc, &ul, ub);
+                    DeleteObject(ub);
+                    g_sidebarAiLinkRect = lr;
+                }
 
                 // Status line beneath the primary action
                 SelectObject(hdc, g_hFontBodyNew);
@@ -1395,11 +1604,78 @@ static LRESULT CALLBACK SidebarProc(HWND hwnd, UINT uMsg,
 
         case WM_SIZE:
             // Re-pin zone ③ (AI toggle + Run analysis) to the bottom
-            // on every resize, so the primary action never drifts.
+            // on every resize, so the primary action never drifts —
+            // and repaint fully, since the header/zones are centered
+            // on and sized to the (now draggable) width.
             layoutSidebarControls(hwnd);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+
+        // ── Resize grip: drag the sidebar's right edge ─────────────
+        case WM_SETCURSOR: {
+            POINT pt; GetCursorPos(&pt); ScreenToClient(hwnd, &pt);
+            RECT rc; GetClientRect(hwnd, &rc);
+            if (g_sidebarDragging || pt.x >= rc.right - S(SIDEBAR_GRIP)) {
+                SetCursor(LoadCursor(nullptr, IDC_SIZEWE));
+                return TRUE;
+            }
+            return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+        }
+
+        case WM_LBUTTONDOWN: {
+            {
+                POINT p = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                if (PtInRect(&g_sidebarAiLinkRect, p)) {
+                    openAiSettingsDialog(g_hMainWindow);
+                    return 0;
+                }
+            }
+            RECT rc; GetClientRect(hwnd, &rc);
+            if (GET_X_LPARAM(lParam) >= rc.right - S(SIDEBAR_GRIP)) {
+                g_sidebarDragging = true;
+                SetCapture(hwnd);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+
+        case WM_LBUTTONUP:
+            if (g_sidebarDragging) ReleaseCapture();  // -> WM_CAPTURECHANGED
+            return 0;
+
+        case WM_CAPTURECHANGED:
+            if (g_sidebarDragging) {
+                g_sidebarDragging = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
             return 0;
 
         case WM_MOUSEMOVE: {
+            if (g_sidebarDragging) {
+                // Sidebar starts at x=0, so the cursor's client x IS
+                // the requested width.
+                int want = clampSidebarWidth(
+                    (int)(GET_X_LPARAM(lParam) / g_dpiScale + 0.5));
+                if (want != g_sidebarW) {
+                    g_sidebarW = want;
+                    layoutChildren(g_hMainWindow);
+                    UpdateWindow(hwnd);
+                    if (g_hContent) UpdateWindow(g_hContent);
+                }
+                return 0;
+            }
+            {
+                RECT rc; GetClientRect(hwnd, &rc);
+                bool hot = GET_X_LPARAM(lParam) >= rc.right - S(SIDEBAR_GRIP);
+                if (hot != g_sidebarGripHot) {
+                    g_sidebarGripHot = hot;
+                    if (hot) {  // so leaving straight into the content pane un-highlights
+                        TRACKMOUSEEVENT tme = {sizeof(tme), TME_LEAVE, hwnd, 0};
+                        TrackMouseEvent(&tme);
+                    }
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                }
+            }
             // Find which child button is under cursor
             POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             HWND child = ChildWindowFromPoint(hwnd, pt);
@@ -1421,6 +1697,10 @@ static LRESULT CALLBACK SidebarProc(HWND hwnd, UINT uMsg,
         }
 
         case WM_MOUSELEAVE: {
+            if (g_sidebarGripHot) {
+                g_sidebarGripHot = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
             g_hoveredBtn = nullptr;
             if (g_hBtnSelectFolder)  InvalidateRect(g_hBtnSelectFolder,  nullptr, TRUE);
             if (g_hBtnImportFiles)   InvalidateRect(g_hBtnImportFiles,   nullptr, TRUE);
@@ -1439,6 +1719,8 @@ static LRESULT CALLBACK SidebarProc(HWND hwnd, UINT uMsg,
 int g_scrollY    = 0;     // Current scroll offset
 static int g_contentH   = 0;     // Total content height
 int g_viewportH  = 0;     // Visible area height
+int g_pendingScrollPairIdx    = -1;  // see gui_common.h
+int g_pendingScrollPairOffset = -1;
 
 ResultsPage g_currentPage = PAGE_OVERVIEW;
 int g_selectedStudent = -1;  // -1 = grid view, otherwise index in profiles
@@ -1457,8 +1739,11 @@ static bool  g_tabUnderlineInit = false;
 static RECT g_exportBtnRect = {};
 static RECT g_searchBtnRect = {};
 static bool g_exportMenuOpen = false;
-static bool g_searchActive  = false;
-static HWND g_hSearchEdit   = nullptr; // real EDIT control, shown/hidden on toggle
+// Real EDIT control for the Classes search box. Shown only on the
+// Classes roster, positioned inside its fixed block bar every paint by
+// drawSearchBox(); hidden everywhere else.
+static HWND g_hSearchEdit   = nullptr;
+static WNDPROC g_searchEditOrigProc = nullptr;
 std::wstring g_searchFilterLower; // lowercased, updated live from the edit control
 
 // Classes grid sort control (spec §5.8: "Add Sort ▾ (name / submissions
@@ -1725,15 +2010,14 @@ GraphicsPath* makeRoundRectPath(float x, float y, float w, float h, float r) {
     return path;
 }
 
-void drawCard(HDC hdc, const RECT& r, COLORREF bg, COLORREF border,
-                      int radius, COLORREF accentLeft)
+// The card's actual drawing, onto any Graphics target at (x, y). Used
+// both directly (drawCard's uncached path) and to render the cached
+// sprites below, so the two can never drift apart visually.
+static void paintCardGraphics(Graphics& g, float x, float y, float w, float h,
+                              float rad, COLORREF bg, COLORREF border,
+                              COLORREF accentLeft)
 {
-    Graphics g(hdc);
     g.SetSmoothingMode(SmoothingModeAntiAlias);
-
-    float x = (float)r.left, y = (float)r.top;
-    float w = (float)(r.right - r.left), h = (float)(r.bottom - r.top);
-    float rad = (float)radius;
 
     // Soft shadow — several offset translucent rounded rects
     for (int i = 4; i >= 1; --i) {
@@ -1761,6 +2045,101 @@ void drawCard(HDC hdc, const RECT& r, COLORREF bg, COLORREF border,
         g.FillPath(&accentBrush, accentPath);
         delete accentPath;
     }
+}
+
+// ── Card sprite cache (scale perf fix D) ─────────────────────────
+// Four anti-aliased GDI+ shadow fills + body + border cost ~2.8ms per
+// card drawn straight onto the paint buffer — the dominant per-frame
+// cost on every tab once fixes A+B+C landed (~20 visible cards), and
+// what made the source-view scroll glide choppy. Cards repeat the
+// same few sizes/colors, so each distinct card is rendered ONCE into
+// a premultiplied-alpha bitmap (shadow included, transparent around
+// it) and AlphaBlend'ed thereafter: ~0.14ms per card. Output matches
+// the direct draw to within 1/255 per channel (compositing rounding);
+// the shadow offsets are fractional but position-independent, since
+// cards always sit on whole pixels. Clip regions still apply —
+// AlphaBlend honors them like GDI+ did.
+static const int CARD_SPRITE_PAD_L = 2, CARD_SPRITE_PAD_T = 2;  // border AA
+static const int CARD_SPRITE_PAD_R = 6, CARD_SPRITE_PAD_B = 6;  // shadow reach
+static const size_t CARD_SPRITE_MAX_BYTES  = 16u << 20; // bigger: draw direct
+static const size_t CARD_CACHE_MAX_BYTES   = 64u << 20; // over: flush cache
+static const size_t CARD_CACHE_MAX_ENTRIES = 256;
+
+struct CardSprite { HBITMAP bmp; int w, h; size_t bytes; };
+static std::map<std::tuple<int,int,int,COLORREF,COLORREF,COLORREF>, CardSprite> g_cardSprites;
+static size_t g_cardSpriteBytes = 0;
+static HDC    g_cardSpriteDC    = nullptr;
+
+static HBITMAP renderCardSprite(int w, int h, int radius, COLORREF bg,
+                                COLORREF border, COLORREF accentLeft,
+                                int sw, int sh)
+{
+    BITMAPINFO bi = {};
+    bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth       = sw;
+    bi.bmiHeader.biHeight      = -sh; // top-down, to match GDI+'s stride
+    bi.bmiHeader.biPlanes      = 1;
+    bi.bmiHeader.biBitCount    = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP bmp = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bmp) return nullptr;
+    memset(bits, 0, (size_t)sw * sh * 4);
+    {
+        Bitmap target(sw, sh, sw * 4, PixelFormat32bppPARGB, (BYTE*)bits);
+        Graphics g(&target);
+        paintCardGraphics(g, (float)CARD_SPRITE_PAD_L, (float)CARD_SPRITE_PAD_T,
+                          (float)w, (float)h, (float)radius, bg, border, accentLeft);
+    }
+    GdiFlush();
+    return bmp;
+}
+
+static void clearCardSprites() {
+    for (auto& kv : g_cardSprites) DeleteObject(kv.second.bmp);
+    g_cardSprites.clear();
+    g_cardSpriteBytes = 0;
+}
+
+void drawCard(HDC hdc, const RECT& r, COLORREF bg, COLORREF border,
+                      int radius, COLORREF accentLeft)
+{
+    int w = r.right - r.left, h = r.bottom - r.top;
+    int sw = w + CARD_SPRITE_PAD_L + CARD_SPRITE_PAD_R;
+    int sh = h + CARD_SPRITE_PAD_T + CARD_SPRITE_PAD_B;
+    size_t bytes = (w > 0 && h > 0) ? (size_t)sw * sh * 4 : 0;
+
+    if (bytes == 0 || bytes > CARD_SPRITE_MAX_BYTES) {
+        Graphics g(hdc);
+        paintCardGraphics(g, (float)r.left, (float)r.top, (float)w, (float)h,
+                          (float)radius, bg, border, accentLeft);
+        return;
+    }
+
+    auto key = std::make_tuple(w, h, radius, bg, border, accentLeft);
+    auto it = g_cardSprites.find(key);
+    if (it == g_cardSprites.end()) {
+        if (g_cardSpriteBytes + bytes > CARD_CACHE_MAX_BYTES ||
+            g_cardSprites.size() >= CARD_CACHE_MAX_ENTRIES)
+            clearCardSprites();
+        HBITMAP bmp = renderCardSprite(w, h, radius, bg, border, accentLeft, sw, sh);
+        if (!bmp) {
+            Graphics g(hdc);
+            paintCardGraphics(g, (float)r.left, (float)r.top, (float)w, (float)h,
+                              (float)radius, bg, border, accentLeft);
+            return;
+        }
+        it = g_cardSprites.emplace(key, CardSprite{bmp, sw, sh, bytes}).first;
+        g_cardSpriteBytes += bytes;
+    }
+
+    if (!g_cardSpriteDC) g_cardSpriteDC = CreateCompatibleDC(nullptr);
+    HBITMAP old = (HBITMAP)SelectObject(g_cardSpriteDC, it->second.bmp);
+    BLENDFUNCTION bf = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    AlphaBlend(hdc, r.left - CARD_SPRITE_PAD_L, r.top - CARD_SPRITE_PAD_T,
+               it->second.w, it->second.h, g_cardSpriteDC, 0, 0,
+               it->second.w, it->second.h, bf);
+    SelectObject(g_cardSpriteDC, old);
 }
 
 static COLORREF toastAccentColor(ToastKind k) {
@@ -1826,7 +2205,7 @@ static void drawToasts(HDC hdcScreen, const RECT& viewport) {
 // close), so the three stay in sync without duplicating magic numbers.
 // Fixed size, not text-measured — the whole reason this is a distinct
 // kind from MODAL_OK/MODAL_CONFIRM (see the ModalKind enum's comment).
-struct SourceViewGeom { RECT modal, header, toolbar, body, closeBtn; int lineH; };
+struct SourceViewGeom { RECT modal, header, toolbar, counts, body, closeBtn, legendBtn; int lineH; };
 static SourceViewGeom sourceViewGeometry(const RECT& viewport) {
     SourceViewGeom g;
     int modalW = S(860);
@@ -1842,19 +2221,32 @@ static SourceViewGeom sourceViewGeometry(const RECT& viewport) {
     g.modal = {mx, my, mx + modalW, my + modalH};
 
     // Compare mode adds a toolbar row (File A/B tabs, prev/next match)
-    // under the title/subtitle; single-file mode's layout is unchanged.
-    int toolbarH = g_appModal.sourceCompare ? S(36) : 0;
+    // under the title/subtitle, then a row for the match/style counts —
+    // they used to share the toolbar row, where the two file tabs left
+    // them too little width and they ellipsized ("fits this st…"). The
+    // footer also gets a second line in compare mode (color key, then
+    // line count + shortcuts). Single-file mode's layout is unchanged.
+    int tabRowH  = g_appModal.sourceCompare ? S(36) : 0;
+    int countsH  = g_appModal.sourceCompare ? S(24) : 0;
+    int toolbarH = tabRowH + countsH;
     int headerH = S(60) + toolbarH;
-    int footerH = S(24);
+    int footerH = g_appModal.sourceCompare ? S(42) : S(24);
     g.header = {g.modal.left, g.modal.top, g.modal.right, g.modal.top + headerH};
     g.toolbar = {g.modal.left + S(20), g.modal.top + S(60),
-                 g.modal.right - S(20), g.modal.top + S(60) + toolbarH - S(8)};
+                 g.modal.right - S(20), g.modal.top + S(60) + tabRowH - S(8)};
+    g.counts  = {g.modal.left + S(20), g.toolbar.bottom + S(2),
+                 g.modal.right - S(20), g.toolbar.bottom + S(2) + countsH - S(4)};
     g.body   = {g.modal.left + S(20), g.header.bottom + S(8),
                 g.modal.right - S(20), g.modal.bottom - footerH};
 
     int closeSz = S(28);
     g.closeBtn = {g.modal.right - S(16) - closeSz, g.modal.top + S(16),
                   g.modal.right - S(16), g.modal.top + S(16) + closeSz};
+    // "How to read" sits left of close — compare mode only, since the
+    // highlights it explains only exist there.
+    g.legendBtn = g_appModal.sourceCompare
+        ? RECT{g.closeBtn.left - S(8) - S(128), g.closeBtn.top, g.closeBtn.left - S(8), g.closeBtn.bottom}
+        : RECT{};
 
     g.lineH = S(18);
     return g;
@@ -1909,26 +2301,46 @@ static void swapSourceViewSide(HWND hwnd, int side) {
     }
 
     SourceViewSide& o = m.sourceOther;
-    std::swap(m.title,           o.title);
-    std::swap(m.sourceLines,     o.lines);
-    std::swap(m.sourceSubtitle,  o.subtitle);
-    std::swap(m.sourceMissing,   o.missing);
-    std::swap(m.sourceTruncated, o.truncated);
-    std::swap(m.sourceScrollY,   o.scrollY);
-    std::swap(m.sourcePartner,   o.partner);
-    std::swap(m.sourceHighlight, o.highlight);
-    std::swap(m.sourceRunStarts, o.runStarts);
+    std::swap(m.title,            o.title);
+    std::swap(m.sourceLines,      o.lines);
+    std::swap(m.sourceSubtitle,   o.subtitle);
+    std::swap(m.sourceMissing,    o.missing);
+    std::swap(m.sourceTruncated,  o.truncated);
+    std::swap(m.sourceScrollY,    o.scrollY);
+    std::swap(m.sourcePartner,        o.partner);
+    std::swap(m.sourceMatchHighlight, o.matchHighlight);
+    std::swap(m.sourceMatchRunStarts, o.matchRunStarts);
+    std::swap(m.sourceHighlight,  o.highlight);
+    std::swap(m.sourceRunStarts,  o.runStarts);
+    std::swap(m.sourceFlagReason, o.flagReason);
+    std::swap(m.sourceFlagCount,  o.flagCount);
+    std::swap(m.sourceStyleNote,  o.styleNote);
     m.sourceSide = side;
     m.sourceScrollAnimating = false; // switching files snaps; the old glide belonged to the other file
-    if (alignedScroll >= 0) m.sourceScrollY = alignedScroll; // drawSourceViewModal clamps
+    // A matched line on screen: land its partner at the same height, so
+    // flipping A/B keeps the evidence lined up. Otherwise each file keeps
+    // its own scroll position (drawSourceViewModal clamps either way).
+    if (alignedScroll >= 0) m.sourceScrollY = alignedScroll;
     InvalidateRect(hwnd, nullptr, FALSE);
 }
 
-// Compare mode: scroll to the next (dir > 0) or previous matched run,
-// leaving a few lines of context above it.
+// Compare mode: every Prev/Next stop in the shown file — the start of
+// each gold matched run and each red flagged function, sorted, no dups.
+static std::vector<int> sourceJumpStops() {
+    std::vector<int> stops = g_appModal.sourceMatchRunStarts;
+    stops.insert(stops.end(), g_appModal.sourceRunStarts.begin(), g_appModal.sourceRunStarts.end());
+    std::sort(stops.begin(), stops.end());
+    stops.erase(std::unique(stops.begin(), stops.end()), stops.end());
+    return stops;
+}
+
+// Compare mode: scroll to the next (dir > 0) or previous highlighted
+// section (gold or red), leaving a few lines of context above it.
 static void jumpSourceViewMatch(HWND hwnd, int dir) {
     AppModal& m = g_appModal;
-    if (m.kind != MODAL_SOURCE_VIEW || m.sourceRunStarts.empty()) return;
+    if (m.kind != MODAL_SOURCE_VIEW) return;
+    std::vector<int> stops = sourceJumpStops();
+    if (stops.empty()) return;
 
     RECT vp; GetClientRect(hwnd, &vp);
     SourceViewGeom geom = sourceViewGeometry(vp);
@@ -1936,10 +2348,10 @@ static void jumpSourceViewMatch(HWND hwnd, int dir) {
     int topLine = sourceScrollBase() / geom.lineH;
     int target = -1;
     if (dir > 0) {
-        for (int li : m.sourceRunStarts)
+        for (int li : stops)
             if (li - context > topLine) { target = li; break; }
     } else {
-        for (auto it = m.sourceRunStarts.rbegin(); it != m.sourceRunStarts.rend(); ++it)
+        for (auto it = stops.rbegin(); it != stops.rend(); ++it)
             if (*it - context < topLine) { target = *it; break; }
     }
     if (target < 0) return;
@@ -1956,8 +2368,150 @@ static void jumpSourceViewMatch(HWND hwnd, int dir) {
 // page's g_scrollY), monospace text, no syntax highlighting (see
 // CLAUDE.md's note on why: tokenizer.cpp's Token has no source
 // offset, so highlighting here would need a second, separate lexer).
+// Fills `r` with SOURCE_MATCH_FILL at SOURCE_MATCH_ALPHA over whatever
+// is already drawn there (GDI's FillRect has no alpha). One cached 1x1
+// source bitmap, stretched by AlphaBlend — allocated once, not per line.
+static void fillSourceMatchWash(HDC hdc, const RECT& r) {
+    static HDC s_dc = nullptr;
+    if (!s_dc) {
+        s_dc = CreateCompatibleDC(nullptr);
+        BITMAPINFO bi = {};
+        bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+        bi.bmiHeader.biWidth       = 1;
+        bi.bmiHeader.biHeight      = 1;
+        bi.bmiHeader.biPlanes      = 1;
+        bi.bmiHeader.biBitCount    = 32;
+        bi.bmiHeader.biCompression = BI_RGB;
+        void* bits = nullptr;
+        HBITMAP bmp = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (bmp && bits)
+            *(DWORD*)bits = (GetRValue(SOURCE_MATCH_FILL) << 16) |
+                            (GetGValue(SOURCE_MATCH_FILL) << 8) | GetBValue(SOURCE_MATCH_FILL);
+        SelectObject(s_dc, bmp);
+    }
+    BLENDFUNCTION bf = {AC_SRC_OVER, 0, SOURCE_MATCH_ALPHA, 0};
+    AlphaBlend(hdc, r.left, r.top, r.right - r.left, r.bottom - r.top, s_dc, 0, 0, 1, 1, bf);
+}
+
+// Compare mode's "How to read" panel — drawn over the body when
+// g_appModal.sourceLegendOpen. Explains gold and red in instructor
+// terms. The numbers come from the same constants the highlights use
+// (SOURCE_MATCH_MIN_TOKENS, STYLE_*), so the text can't drift from the
+// rule. Any click or Esc closes it (ContentProc).
+static void drawSourceViewLegend(HDC hdc, const SourceViewGeom& geom) {
+    RECT panel = {geom.modal.left + S(12), geom.header.bottom + S(6),
+                  geom.modal.right - S(12), geom.modal.bottom - S(10)};
+    drawCard(hdc, panel, GRAY_850, UL_GOLD, 10);
+    HRGN clip = CreateRectRgn(panel.left, panel.top, panel.right, panel.bottom);
+    SelectClipRgn(hdc, clip);
+
+    RECT in = {panel.left + S(22), panel.top + S(16), panel.right - S(22), panel.bottom - S(12)};
+    SetBkMode(hdc, TRANSPARENT);
+
+    SelectObject(hdc, g_hFontH2);
+    SetTextColor(hdc, UL_GOLD);
+    RECT tr = {in.left, in.top, in.right, in.top + S(26)};
+    DrawTextW(hdc, L"How to read the highlights", -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(hdc, g_hFontLabel);
+    SetTextColor(hdc, GRAY_500);
+    DrawTextW(hdc, L"CLICK ANYWHERE OR PRESS ESC TO CLOSE", -1, &tr,
+              DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    // The caveat goes first: on a short screen the panel clips from the
+    // bottom, and this is the one line that must never be cut.
+    SelectObject(hdc, g_hFontSmall);
+    SetTextColor(hdc, GRAY_400);
+    RECT cr ={in.left, tr.bottom + S(4), in.right, tr.bottom + S(26)};
+    DrawTextW(hdc, L"Both colors show where to look, not proof of copying. They're display-only "
+                   L"and never change any score.", -1, &cr,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    tr.bottom = cr.bottom;
+
+    // One colored section: swatch + eyebrow heading, then wrapped
+    // paragraphs. Returns the y just below it.
+    auto section = [&](int x, int y, int w, COLORREF color, const wchar_t* heading,
+                       const std::vector<std::wstring>& paras) {
+        RECT sw = {x, y + S(2), x + S(12), y + S(14)};
+        HBRUSH b = CreateSolidBrush(color);
+        FillRect(hdc, &sw, b);
+        DeleteObject(b);
+        SelectObject(hdc, g_hFontLabel);
+        SetTextColor(hdc, color);
+        RECT hr = {x + S(20), y, x + w, y + S(16)};
+        DrawTextW(hdc, heading, -1, &hr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        y += S(22);
+        SelectObject(hdc, g_hFontSmall);
+        bool prevSub = false;
+        for (const auto& p : paras) {
+            bool sub = p.size() > 1 && p[0] == L' '; // indented list item
+            if (prevSub && !sub) y += S(6);          // end of a list: same gap as a paragraph
+            prevSub = sub;
+            int px = x + (sub ? S(18) : 0);
+            SetTextColor(hdc, GRAY_200);
+            RECT m = {px, y, x + w, y};
+            DrawTextW(hdc, p.c_str(), -1, &m, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
+            RECT d = {px, y, x + w, m.bottom};
+            DrawTextW(hdc, p.c_str(), -1, &d, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+            y = m.bottom + (sub ? S(2) : S(8));
+        }
+        return y;
+    };
+
+    int top = tr.bottom + S(12);
+    int gap = S(28);
+    int colW = (in.right - in.left - gap) / 2;
+    std::wstring minTok = std::to_wstring(SOURCE_MATCH_MIN_TOKENS);
+    int leftEnd = section(in.left, top, colW, SOURCE_MATCH_BAR, L"GOLD  —  ALSO IN THE OTHER FILE", {
+        L"A line is gold when the same line appears in the other student's file, in the same order.",
+        L"Variable and function names are ignored, so renaming them doesn't hide a copied line.",
+        L"Lines with fewer than " + minTok + L" tokens (like  }  or  return 0; ) are never marked "
+        L"— everyone writes those.",
+        L"Gold shows where the two files overlap. It can't tell you who copied from whom.",
+    });
+
+    std::wstring minChanged = std::to_wstring(STYLE_MIN_CHANGED);
+    std::wstring spread     = std::to_wstring((int)STYLE_SPREAD_MULT);
+    std::wstring lineFloor  = std::to_wstring((int)STYLE_FLOOR[3]);
+    std::wstring minHist    = std::to_wstring(STYLE_MIN_HISTORY);
+    int rightEnd = section(in.left + colW + gap, top, colW, SOURCE_STYLE_BAR,
+                           L"RED  —  DOESN'T LOOK LIKE THIS STUDENT", {
+        L"A function is red when its formatting doesn't match this student's own "
+        L"activities and quizzes. CALSS compares 4 habits:",
+        L" 1.  Brace placement — {  on the same line or the next line",
+        L" 2.  Operator spacing — a = b + c  vs  a=b+c",
+        L" 3.  Inline comments — comments at the end of a code line",
+        L" 4.  Line length — average characters per line",
+        L"A habit has changed only if it's past " + spread + L"x the student's normal "
+        L"variation and a minimum (e.g. " + lineFloor + L" characters for line length).",
+        L"Red needs " + minChanged + L"+ habits to change in the SAME function — one change "
+        L"alone is common in honest work.",
+        L"Naming isn't checked: activities often hand out variable names. Needs " + minHist +
+        L"+ earlier submissions.",
+    });
+
+    int y = std::max(leftEnd, rightEnd) + S(6);
+    HPEN pen = CreatePen(PS_SOLID, 1, GRAY_700);
+    HPEN oldPen = (HPEN)SelectObject(hdc, pen);
+    MoveToEx(hdc, in.left, y, nullptr);
+    LineTo(hdc, in.right, y);
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+    section(in.left, y + S(12), in.right - in.left, UL_GOLD, L"READING THEM TOGETHER", {
+        L"Gold + red: code that matches the other file AND doesn't look like its owner's "
+        L"style — the strongest reason to look closer.",
+        L"Gold only: shared code in the student's own style — retyped from a copy, or simply "
+        L"a common solution to the same problem.",
+        L"Red only: the student's formatting changed, but the code doesn't match the other file.",
+        L"No red doesn't clear a file: a copy that differs from the student in only one habit "
+        L"isn't marked.",
+    });
+
+    SelectClipRgn(hdc, nullptr);
+    DeleteObject(clip);
+}
+
 static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
-    static HBRUSH s_matchBgBrush  = CreateSolidBrush(SOURCE_MATCH_BG);
+    static HBRUSH s_styleBgBrush  = CreateSolidBrush(SOURCE_STYLE_BG);
+    static HBRUSH s_styleBarBrush = CreateSolidBrush(SOURCE_STYLE_BAR);
     static HBRUSH s_matchBarBrush = CreateSolidBrush(SOURCE_MATCH_BAR);
     SourceViewGeom geom = sourceViewGeometry(viewport);
     drawCard(hdcScreen, geom.modal, GRAY_900, GRAY_700, 14, UL_GOLD);
@@ -1966,8 +2520,9 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
 
     HFONT oldFont = (HFONT)SelectObject(hdcScreen, g_hFontH2);
     SetTextColor(hdcScreen, UL_GOLD);
+    int headerRight = (g_appModal.sourceCompare ? geom.legendBtn.left : geom.closeBtn.left) - S(10);
     RECT titleR = {geom.header.left + S(20), geom.header.top + S(10),
-                    geom.closeBtn.left - S(10), geom.header.top + S(32)};
+                    headerRight, geom.header.top + S(32)};
     DrawTextW(hdcScreen, g_appModal.title.c_str(), -1, &titleR,
               DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
@@ -1977,7 +2532,7 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
     // in compare mode the header also holds the toolbar row, and a
     // DT_VCENTER rect spanning both drew the path over the File A/B tabs.
     RECT subR = {geom.header.left + S(20), geom.header.top + S(34),
-                  geom.closeBtn.left - S(10), geom.header.top + S(56)};
+                  headerRight, geom.header.top + S(56)};
     DrawTextW(hdcScreen, g_appModal.sourceSubtitle.c_str(), -1, &subR,
               DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 
@@ -1996,8 +2551,21 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
               DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     g_sourceViewCloseBtnRect = geom.closeBtn;
 
-    // Compare-mode toolbar: File A / File B tabs on the left, match
-    // count + prev/next match buttons on the right. Hit rects are
+    // "How to read" button (compare mode) — gold-bordered while its
+    // panel is open, so it reads as the toggle that closes it again.
+    g_sourceViewLegendBtnRect = geom.legendBtn;
+    if (g_appModal.sourceCompare) {
+        bool open = g_appModal.sourceLegendOpen;
+        drawCard(hdcScreen, geom.legendBtn, open ? MAROON_800 : GRAY_800,
+                 open ? UL_GOLD : GRAY_700, 6);
+        SelectObject(hdcScreen, g_hFontLabel);
+        SetTextColor(hdcScreen, open ? UL_GOLD : GRAY_200);
+        DrawTextW(hdcScreen, L"?  How to read", -1, &geom.legendBtn,
+                  DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
+
+    // Compare-mode toolbar: File A / File B tabs on the left, match and
+    // style counts + prev/next buttons on the right. Hit rects are
     // recorded here, same as the close button above.
     g_sourceViewTabRects[0] = g_sourceViewTabRects[1] = RECT{};
     g_sourceViewPrevRect = g_sourceViewNextRect = RECT{};
@@ -2023,7 +2591,9 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
             tx = tr.right + S(8);
         }
 
-        bool canJump = !g_appModal.sourceRunStarts.empty();
+        bool hasMatch = !g_appModal.sourceMatchRunStarts.empty();
+        bool hasStyle = !g_appModal.sourceRunStarts.empty();
+        bool canJump  = hasMatch || hasStyle;
         int bw = S(88);
         RECT nextR = {geom.toolbar.right - bw, geom.toolbar.top,
                       geom.toolbar.right, geom.toolbar.bottom};
@@ -2031,20 +2601,41 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
                       nextR.left - S(8), geom.toolbar.bottom};
         const wchar_t* labels[2] = {L"▲  Prev", L"▼  Next"};
         RECT* rs[2] = {&prevR, &nextR};
+        COLORREF jumpBorder = hasMatch ? SOURCE_MATCH_BAR : hasStyle ? SOURCE_STYLE_BAR : GRAY_700;
         for (int k = 0; k < 2; ++k) {
-            drawCard(hdcScreen, *rs[k], GRAY_800, canJump ? SOURCE_MATCH_BAR : GRAY_700, 6);
+            drawCard(hdcScreen, *rs[k], GRAY_800, jumpBorder, 6);
             SetTextColor(hdcScreen, canJump ? GRAY_200 : GRAY_500);
             DrawTextW(hdcScreen, labels[k], -1, rs[k], DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
         if (canJump) { g_sourceViewPrevRect = prevR; g_sourceViewNextRect = nextR; }
 
-        std::wstring countText = g_appModal.sourceCompareNote.empty()
-            ? std::to_wstring(g_appModal.sourceMatchCount) + L" matching lines"
-            : std::wstring(L"no highlighting");
-        RECT cr = {tx + S(8), geom.toolbar.top, prevR.left - S(12), geom.toolbar.bottom};
-        SetTextColor(hdcScreen, g_appModal.sourceMatchCount > 0 ? SOURCE_MATCH_BAR : GRAY_500);
-        DrawTextW(hdcScreen, countText.c_str(), -1, &cr,
-                  DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        // Two counts, each in its own highlight's color: "N matching
+        // lines" (gold) then the style verdict (red), left-aligned on
+        // their own row under the tabs (geom.counts) so neither has to
+        // ellipsize.
+        int mc = g_appModal.sourceMatchCount;
+        std::wstring matchText = !g_appModal.sourceMatchNote.empty()
+            ? std::wstring(L"no match highlighting")
+            : std::to_wstring(mc) + (mc == 1 ? L" matching line" : L" matching lines");
+        int fc = g_appModal.sourceFlagCount;
+        std::wstring styleText = !g_appModal.sourceStyleNote.empty()
+            ? std::wstring(L"no style judgment")
+            : fc == 0 ? std::wstring(L"fits this student's usual style")
+            : std::to_wstring(fc) + (fc == 1 ? L" section breaks" : L" sections break") +
+              L" this student's pattern";
+        styleText = L"  ·  " + styleText;
+        RECT mm = {0, 0, 0, 0};
+        DrawTextW(hdcScreen, matchText.c_str(), -1, &mm, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+        RECT mr2 = geom.counts;
+        mr2.right = mr2.left + (mm.right - mm.left);
+        if (mr2.right > geom.counts.right) mr2.right = geom.counts.right;
+        SetTextColor(hdcScreen, mc > 0 ? SOURCE_MATCH_BAR : GRAY_500);
+        DrawTextW(hdcScreen, matchText.c_str(), -1, &mr2,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        RECT sr = {mr2.right, geom.counts.top, geom.counts.right, geom.counts.bottom};
+        SetTextColor(hdcScreen, fc > 0 ? SOURCE_STYLE_BAR : GRAY_500);
+        DrawTextW(hdcScreen, styleText.c_str(), -1, &sr,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     }
 
     // Body — clipped to its rect so long lines/overflow can't bleed
@@ -2078,19 +2669,51 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
              ++i, lineY += geom.lineH)
         {
             RECT lr = {geom.body.left, lineY, geom.body.right, lineY + geom.lineH};
-            bool hl = i < g_appModal.sourceHighlight.size() && g_appModal.sourceHighlight[i];
+            bool hl   = i < g_appModal.sourceHighlight.size() && g_appModal.sourceHighlight[i];
+            bool gold = i < g_appModal.sourceMatchHighlight.size() && g_appModal.sourceMatchHighlight[i];
+            // Compare mode: red fill on functions that break this
+            // student's own pattern (see computeStyleChanges), then a
+            // translucent gold wash on lines matching the other file
+            // (see computeSourceLineMatches) — so a copied line inside a
+            // red function shows both. Bars sit side by side, red outer.
+            RECT bg = {lr.left - S(8), lr.top, lr.right - S(10), lr.bottom};
+            int barX = bg.left;
             if (hl) {
-                // Compare mode: red highlight on lines matching the
-                // other file (see computeSourceLineMatches).
-                RECT bg = {lr.left - S(8), lr.top, lr.right - S(10), lr.bottom};
-                FillRect(hdcScreen, &bg, s_matchBgBrush);
-                RECT bar = {bg.left, bg.top, bg.left + S(3), bg.bottom};
-                FillRect(hdcScreen, &bar, s_matchBarBrush);
-                SetTextColor(hdcScreen, SOURCE_MATCH_TEXT);
+                FillRect(hdcScreen, &bg, s_styleBgBrush);
+                RECT bar = {barX, bg.top, barX + S(3), bg.bottom};
+                FillRect(hdcScreen, &bar, s_styleBarBrush);
+                barX += S(3);
             }
+            if (gold) {
+                fillSourceMatchWash(hdcScreen, bg);
+                RECT bar = {barX, bg.top, barX + S(3), bg.bottom};
+                FillRect(hdcScreen, &bar, s_matchBarBrush);
+            }
+            if (hl || gold) SetTextColor(hdcScreen, hl ? SOURCE_STYLE_TEXT : SOURCE_MATCH_TEXT);
             DrawTextW(hdcScreen, g_appModal.sourceLines[i].c_str(), -1, &lr,
                       DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
-            if (hl) SetTextColor(hdcScreen, GRAY_200);
+            if (hl || gold) SetTextColor(hdcScreen, GRAY_200);
+
+            // Reason label, right-aligned on a flagged function's first
+            // line, on its own backing so it stays readable over code.
+            if (hl && i < g_appModal.sourceFlagReason.size() &&
+                !g_appModal.sourceFlagReason[i].empty()) {
+                const std::wstring& why = g_appModal.sourceFlagReason[i];
+                HFONT prevF = (HFONT)SelectObject(hdcScreen, g_hFontSmall);
+                RECT mr = {0, 0, 0, 0};
+                DrawTextW(hdcScreen, why.c_str(), -1, &mr, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+                int maxW = (lr.right - lr.left) * 3 / 5;
+                int w = mr.right - mr.left + S(16);
+                if (w > maxW) w = maxW;
+                RECT pill = {lr.right - S(14) - w, lr.top, lr.right - S(14), lr.bottom};
+                FillRect(hdcScreen, &pill, s_styleBarBrush);
+                SetTextColor(hdcScreen, RGB(255, 255, 255));
+                RECT tr = {pill.left + S(8), pill.top, pill.right - S(8), pill.bottom};
+                DrawTextW(hdcScreen, why.c_str(), -1, &tr,
+                          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+                SetTextColor(hdcScreen, GRAY_200);
+                SelectObject(hdcScreen, prevF);
+            }
         }
 
         // Simple scrollbar thumb on the body's right edge — visual
@@ -2098,14 +2721,19 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
         // this HDC isn't an HWND) the native scrollbar on the main pane.
         if (maxScroll > 0) {
             int trackX = geom.body.right - S(6);
-            // Compare mode: a red tick in the track per matched run, so
-            // where the evidence sits in a long file is visible at a glance.
-            if (!g_appModal.sourceRunStarts.empty() && contentH > 0) {
-                for (int li : g_appModal.sourceRunStarts) {
-                    int ty = geom.body.top + (int)((double)li * geom.lineH * viewportH / contentH);
-                    RECT tick = {trackX - S(2), ty, trackX + S(6), ty + S(2)};
-                    FillRect(hdcScreen, &tick, s_matchBarBrush);
-                }
+            // Compare mode: a tick in the track per gold matched run and
+            // per red flagged function (red drawn last, on top), so where
+            // the evidence sits in a long file is visible at a glance.
+            if (contentH > 0) {
+                auto ticks = [&](const std::vector<int>& starts, HBRUSH br) {
+                    for (int li : starts) {
+                        int ty = geom.body.top + (int)((double)li * geom.lineH * viewportH / contentH);
+                        RECT tick = {trackX - S(2), ty, trackX + S(6), ty + S(2)};
+                        FillRect(hdcScreen, &tick, br);
+                    }
+                };
+                ticks(g_appModal.sourceMatchRunStarts, s_matchBarBrush);
+                ticks(g_appModal.sourceRunStarts, s_styleBarBrush);
             }
             int thumbH = (contentH > 0)
                 ? (int)((double)viewportH * viewportH / contentH) : viewportH;
@@ -2133,16 +2761,35 @@ static void drawSourceViewModal(HDC hdcScreen, const RECT& viewport) {
             footer += L"  ·  truncated — file exceeds the display limit, "
                       L"showing a prefix only";
         if (g_appModal.sourceCompare) {
-            footer += g_appModal.sourceCompareNote.empty()
-                ? L"  ·  red = matches the other file (renamed identifiers count)"
-                  L"  ·  Tab / A / B: switch file  ·  N / P: next / prev match"
-                : L"  ·  " + g_appModal.sourceCompareNote;
+            // Two lines (footerH is taller in compare mode): the color
+            // key first, then line count + keyboard shortcuts — one line
+            // held all of it and ran past the modal edge ("N / P: ne…").
+            std::wstring key = g_appModal.sourceMatchNote.empty()
+                ? L"gold = also in the other file (renamed identifiers count)"
+                : g_appModal.sourceMatchNote;
+            key += g_appModal.sourceStyleNote.empty()
+                ? L"  ·  red = breaks this student's own formatting pattern"
+                : L"  ·  " + g_appModal.sourceStyleNote;
+            footer += L"  ·  Tab / A / B: switch file  ·  N / P: next / prev highlight  ·  H: how to read";
+            int top = geom.body.bottom + S(3);
+            RECT keyR  = {geom.modal.left + S(20), top,
+                          geom.modal.right - S(20), top + S(18)};
+            RECT footR = {geom.modal.left + S(20), top + S(18),
+                          geom.modal.right - S(20), top + S(36)};
+            DrawTextW(hdcScreen, key.c_str(), -1, &keyR,
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            DrawTextW(hdcScreen, footer.c_str(), -1, &footR,
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        } else {
+            RECT footR = {geom.modal.left + S(20), geom.body.bottom + S(2),
+                           geom.modal.right - S(20), geom.modal.bottom - S(2)};
+            DrawTextW(hdcScreen, footer.c_str(), -1, &footR,
+                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         }
-        RECT footR = {geom.modal.left + S(20), geom.body.bottom + S(2),
-                       geom.modal.right - S(20), geom.modal.bottom - S(2)};
-        DrawTextW(hdcScreen, footer.c_str(), -1, &footR,
-                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
+
+    if (g_appModal.sourceCompare && g_appModal.sourceLegendOpen)
+        drawSourceViewLegend(hdcScreen, geom);
 
     SelectObject(hdcScreen, oldFont);
 }
@@ -2533,7 +3180,9 @@ std::string extractStudentNameGC(const std::string& filename) {
 // Switches the active report tab. Shared by the tab-bar mouse click
 // handler and activateFocused() (item 2) — identical to what the
 // click did inline before this refactor.
+static void closeDropdown(HWND hwnd);
 static void switchToTab(HWND hwnd, ResultsPage page) {
+    closeDropdown(hwnd);
     if (g_currentPage == page) return;
     g_currentPage = page;
     g_selectedStudent = -1;
@@ -2546,16 +3195,21 @@ static void switchToTab(HWND hwnd, ResultsPage page) {
 }
 
 // Switches to Flagged Pairs, clears both filters, and expands the
-// given pair. Shared by the AI-summary deep-link, the Flagged-
-// Appearances row click, and activateFocused() — was duplicated
-// between the first two before this refactor.
+// given pair, then scrolls straight to it (the pair's position is only
+// known once the page lays out, so the scroll lands on the next paint
+// — see g_pendingScrollPairIdx). Shared by the AI-summary deep-link,
+// the Flagged-Appearances row click, and activateFocused() — was
+// duplicated between the first two before this refactor.
 void jumpToFlaggedPair(HWND hwnd, int pairIndex) {
+    closeDropdown(hwnd);
     g_currentPage = PAGE_FLAGGED;
     g_filterExactDuplicatesOnly = false;
     g_pairSeverityFilter = SEV_FILTER_ALL;
     if (pairIndex >= 0) g_expandedPairs.insert(pairIndex);
     g_selectedStudent = -1;
     g_scrollY = 0;
+    g_pendingScrollPairIdx    = pairIndex;
+    g_pendingScrollPairOffset = -1;
     g_contentFadeAlpha = 60;
     SetTimer(hwnd, TIMER_FADE, 15, nullptr);
     SetTimer(hwnd, TIMER_TAB_UNDERLINE, 12, nullptr);
@@ -2605,25 +3259,384 @@ void generateAndOpenStudentReport() {
     }
 }
 
-// Toggles the search box open/closed. Shared by the search-icon mouse
-// click and activateFocused() (item 2).
-static void toggleSearchBox(HWND hwnd) {
-    g_searchActive = !g_searchActive;
-    if (g_searchActive && g_hSearchEdit) {
-        // Position just left of the search icon, vertically centered
-        // in the tab row.
-        int editW = S(200), editH = S(26);
-        int editX = g_searchBtnRect.left - editW - S(8);
-        int editY = S(4) + (S(TAB_BAR_HEIGHT) - editH) / 2;
-        MoveWindow(g_hSearchEdit, editX, editY, editW, editH, TRUE);
-        ShowWindow(g_hSearchEdit, SW_SHOW);
-        SetFocus(g_hSearchEdit);
-    } else if (g_hSearchEdit) {
-        ShowWindow(g_hSearchEdit, SW_HIDE);
-        SetWindowTextW(g_hSearchEdit, L"");
-        g_searchFilterLower.clear();
-    }
+// Focuses the Classes search box (switching to the roster first if
+// needed). Shared by the box click, Ctrl+F and activateFocused().
+void focusSearchBox(HWND hwnd) {
+    if (!g_hSearchEdit || !g_state.analysisComplete) return;
+    if (g_currentPage != PAGE_STUDENTS) switchToTab(hwnd, PAGE_STUDENTS);
+    if (g_selectedStudent >= 0) closeStudentDetail(hwnd);
+    SetFocus(g_hSearchEdit);
     InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+// Subclass for the search EDIT: draws a placeholder while it's empty
+// and unfocused (no comctl32 v6 manifest here, so EM_SETCUEBANNER isn't
+// available), and makes Esc clear the box and hand focus back.
+static LRESULT CALLBACK SearchEditProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_KEYDOWN && w == VK_ESCAPE) {
+        SetWindowTextW(h, L"");
+        SetFocus(GetParent(h));
+        return 0;
+    }
+    if (m == WM_CHAR && (w == VK_ESCAPE || w == VK_RETURN || w == VK_TAB))
+        return 0;  // no beep
+    LRESULT res = CallWindowProcW(g_searchEditOrigProc, h, m, w, l);
+    if (m == WM_PAINT && GetWindowTextLengthW(h) == 0 && GetFocus() != h) {
+        HDC dc = GetDC(h);
+        RECT rc; GetClientRect(h, &rc);
+        HFONT of = (HFONT)SelectObject(dc, g_hFontBodyNew);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, GRAY_500);
+        rc.left += S(2);
+        DrawTextW(dc, L"Search student name", -1, &rc,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        SelectObject(dc, of);
+        ReleaseDC(h, dc);
+    }
+    if (m == WM_SETFOCUS || m == WM_KILLFOCUS) {
+        InvalidateRect(h, nullptr, TRUE);
+        InvalidateRect(GetParent(h), nullptr, FALSE);  // box border color
+    }
+    return res;
+}
+
+// ── Dropdowns (Classes sort, Flagged Pairs filter) ──────────────
+// One shared component: a page's fixed bar draws the anchor via
+// drawDropdownAnchor() (which records its rect for this frame), and
+// ContentProc draws the open list as an overlay and routes clicks,
+// hover and keys (Up/Down/Enter/Esc) to it. Opening one closes any
+// other; any click outside an open list closes it and is consumed.
+struct DropdownState {
+    int id = DD_NONE;
+    RECT anchor = {};
+    int hover = -1;
+    std::vector<RECT> itemRects;
+};
+static DropdownState g_dropdown;
+static std::map<int, RECT> g_dropdownAnchors;  // rebuilt every paint
+
+std::vector<std::wstring> g_sectionOverflowLabels;
+std::vector<int>          g_sectionOverflowTabs;
+
+static std::vector<std::wstring> dropdownItems(int id) {
+    if (id == DD_CLASSES_SECTIONS)
+        return g_sectionOverflowLabels;
+    if (id == DD_CLASSES_SORT)
+        return {L"Name", L"Submissions", L"Flagged appearances"};
+    if (id == DD_PAIR_FILTER)
+        return {L"All pairs", L"Exact duplicates", L"High (85%+)", L"Moderate (under 85%)"};
+    return {};
+}
+
+static int dropdownSelected(int id) {
+    if (id == DD_CLASSES_SECTIONS) {
+        for (size_t i = 0; i < g_sectionOverflowTabs.size(); ++i)
+            if (g_sectionOverflowTabs[i] == g_currentBlockTab) return (int)i;
+        return -1;
+    }
+    if (id == DD_CLASSES_SORT) return (int)g_classesSortMode;
+    if (id == DD_PAIR_FILTER) {
+        if (g_filterExactDuplicatesOnly) return 1;
+        if (g_pairSeverityFilter == SEV_FILTER_HIGH) return 2;
+        if (g_pairSeverityFilter == SEV_FILTER_MODERATE) return 3;
+        return 0;
+    }
+    return -1;
+}
+
+static void dropdownApply(HWND hwnd, int id, int idx) {
+    if (id == DD_CLASSES_SECTIONS) {
+        if (idx >= 0 && idx < (int)g_sectionOverflowTabs.size())
+            selectBlockTab(hwnd, g_sectionOverflowTabs[idx]);
+        return;
+    }
+    if (id == DD_CLASSES_SORT) {
+        g_classesSortMode = (ClassesSortMode)idx;
+    } else if (id == DD_PAIR_FILTER) {
+        // Exact duplicates and the severity tiers used to be two
+        // separate controls (a toggle reached from the Overview, plus
+        // All/High/Moderate chips); one dropdown now owns both.
+        g_filterExactDuplicatesOnly = (idx == 1);
+        g_pairSeverityFilter = idx == 2 ? SEV_FILTER_HIGH
+                             : idx == 3 ? SEV_FILTER_MODERATE : SEV_FILTER_ALL;
+    }
+    g_scrollY = 0;
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+static void closeDropdown(HWND hwnd) {
+    if (g_dropdown.id == DD_NONE) return;
+    g_dropdown.id = DD_NONE;
+    g_dropdown.itemRects.clear();
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+static void openDropdown(HWND hwnd, int id) {
+    auto it = g_dropdownAnchors.find(id);
+    if (it == g_dropdownAnchors.end()) return;
+    g_dropdown.id = id;
+    g_dropdown.anchor = it->second;
+    g_dropdown.hover = dropdownSelected(id);
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+int dropdownAnchorWidth(HDC hdc, int id, const std::wstring& prefix) {
+    HFONT of = (HFONT)SelectObject(hdc, g_hFontBodyNew);
+    int widest = 0;
+    for (const auto& item : dropdownItems(id)) {
+        std::wstring t = prefix + item;
+        SIZE sz; GetTextExtentPoint32W(hdc, t.c_str(), (int)t.size(), &sz);
+        if (sz.cx > widest) widest = sz.cx;
+    }
+    SelectObject(hdc, of);
+    // Sized to the widest choice so the button doesn't jump around as
+    // the selection changes: text + left pad + chevron area.
+    return widest + S(12) + S(32);
+}
+
+// Small downward triangle, centered at (cx, cy).
+static void drawChevronDown(HDC hdc, int cx, int cy, COLORREF c) {
+    POINT tri[3] = {{cx - S(4), cy - S(2)}, {cx + S(4), cy - S(2)}, {cx, cy + S(3)}};
+    HBRUSH br = CreateSolidBrush(c);
+    HPEN pen = CreatePen(PS_SOLID, 1, c);
+    HBRUSH ob = (HBRUSH)SelectObject(hdc, br);
+    HPEN op = (HPEN)SelectObject(hdc, pen);
+    Polygon(hdc, tri, 3);
+    SelectObject(hdc, ob); SelectObject(hdc, op);
+    DeleteObject(br); DeleteObject(pen);
+}
+
+void registerDropdownAnchor(int id, const RECT& r) {
+    g_dropdownAnchors[id] = r;
+    if (g_dropdown.id == id) g_dropdown.anchor = r;
+    addFocusable(g_contentFocusables, FocusKind::DropdownAnchor, r, id, false);
+}
+
+bool dropdownIsOpen(int id) { return g_dropdown.id == id; }
+
+void drawDropdownAnchor(HDC hdc, const RECT& r, int id, const std::wstring& prefix) {
+    bool open = (g_dropdown.id == id);
+    drawCard(hdc, r, open ? GRAY_700 : GRAY_800, open ? GOLD_500 : GRAY_700, 6);
+    auto items = dropdownItems(id);
+    int sel = dropdownSelected(id);
+    std::wstring text = prefix + ((sel >= 0 && sel < (int)items.size()) ? items[sel] : L"");
+    HFONT of = (HFONT)SelectObject(hdc, g_hFontBodyNew);
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, GRAY_200);
+    RECT tr = {r.left + S(12), r.top, r.right - S(28), r.bottom};
+    DrawTextW(hdc, text.c_str(), -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    drawChevronDown(hdc, r.right - S(16), (r.top + r.bottom) / 2, open ? GOLD_500 : GRAY_400);
+    SelectObject(hdc, of);
+    g_dropdownAnchors[id] = r;
+    if (open) g_dropdown.anchor = r;  // follow layout changes (e.g. resize)
+    addFocusable(g_contentFocusables, FocusKind::DropdownAnchor, r, id, false);
+}
+
+// The open list, drawn in ContentProc's overlay layer.
+static void drawDropdownList(HDC hdc, const RECT& client) {
+    g_dropdown.itemRects.clear();
+    if (g_dropdown.id == DD_NONE) return;
+    auto items = dropdownItems(g_dropdown.id);
+    int sel = dropdownSelected(g_dropdown.id);
+
+    HFONT of = (HFONT)SelectObject(hdc, g_hFontBodyNew);
+    SetBkMode(hdc, TRANSPARENT);
+    int widest = 0;
+    for (const auto& it : items) {
+        SIZE sz; GetTextExtentPoint32W(hdc, it.c_str(), (int)it.size(), &sz);
+        if (sz.cx > widest) widest = sz.cx;
+    }
+    const RECT& a = g_dropdown.anchor;
+    int itemH = S(36);
+    int w = widest + S(56);
+    if (w < a.right - a.left) w = a.right - a.left;
+    int h = (int)items.size() * itemH + S(8);
+    RECT list = {a.right - w, a.bottom + S(4), a.right, a.bottom + S(4) + h};
+    if (list.left < S(8)) { list.right += S(8) - list.left; list.left = S(8); }
+    if (list.right > client.right - S(4)) {
+        int d = list.right - (client.right - S(4));
+        list.left -= d; list.right -= d;
+    }
+    drawCard(hdc, list, GRAY_850, GRAY_700, 8);
+
+    for (size_t i = 0; i < items.size(); ++i) {
+        RECT row = {list.left + S(4), list.top + S(4) + (int)i * itemH,
+                    list.right - S(4), list.top + S(4) + (int)(i + 1) * itemH};
+        g_dropdown.itemRects.push_back(row);
+        if ((int)i == g_dropdown.hover) {
+            HBRUSH hb = CreateSolidBrush(GRAY_800);
+            FillRect(hdc, &row, hb);
+            DeleteObject(hb);
+        }
+        bool isSel = ((int)i == sel);
+        if (isSel) {
+            SetTextColor(hdc, GOLD_500);
+            RECT ck = {row.left + S(10), row.top, row.left + S(30), row.bottom};
+            DrawTextW(hdc, L"✓", -1, &ck, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        }
+        SetTextColor(hdc, isSel ? GOLD_400 : GRAY_200);
+        RECT tr = {row.left + S(32), row.top, row.right - S(10), row.bottom};
+        DrawTextW(hdc, items[i].c_str(), -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    }
+    SelectObject(hdc, of);
+}
+
+static bool ptIn(const RECT& r, int x, int y) {
+    return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+}
+
+// Returns true if the click belonged to the dropdown system: an item
+// pick, a click anywhere while a list is open (closes it), or an
+// anchor click (opens it).
+static bool handleDropdownClick(HWND hwnd, int mx, int my) {
+    if (g_dropdown.id != DD_NONE) {
+        for (size_t i = 0; i < g_dropdown.itemRects.size(); ++i) {
+            if (ptIn(g_dropdown.itemRects[i], mx, my)) {
+                int id = g_dropdown.id;
+                closeDropdown(hwnd);
+                dropdownApply(hwnd, id, (int)i);
+                return true;
+            }
+        }
+        closeDropdown(hwnd);
+        return true;
+    }
+    for (const auto& kv : g_dropdownAnchors) {
+        if (ptIn(kv.second, mx, my)) {
+            openDropdown(hwnd, kv.first);
+            return true;
+        }
+    }
+    return false;
+}
+
+static void dropdownMouseMove(HWND hwnd, int mx, int my) {
+    if (g_dropdown.id == DD_NONE) return;
+    int hov = -1;
+    for (size_t i = 0; i < g_dropdown.itemRects.size(); ++i)
+        if (ptIn(g_dropdown.itemRects[i], mx, my)) hov = (int)i;
+    if (hov != -1 && hov != g_dropdown.hover) {
+        g_dropdown.hover = hov;
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+// Keyboard for an open list. Returns true if the key was consumed.
+static bool dropdownKey(HWND hwnd, WPARAM vk) {
+    if (g_dropdown.id == DD_NONE) return false;
+    int n = (int)dropdownItems(g_dropdown.id).size();
+    if (vk == VK_DOWN || vk == VK_UP) {
+        int h = g_dropdown.hover < 0 ? 0 : g_dropdown.hover + (vk == VK_DOWN ? 1 : -1);
+        if (h < 0) h = n - 1;
+        if (h >= n) h = 0;
+        g_dropdown.hover = h;
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return true;
+    }
+    if (vk == VK_RETURN || vk == VK_SPACE) {
+        int id = g_dropdown.id, idx = g_dropdown.hover;
+        closeDropdown(hwnd);
+        if (idx >= 0 && idx < n) dropdownApply(hwnd, id, idx);
+        return true;
+    }
+    if (vk == VK_ESCAPE || vk == VK_TAB) {
+        closeDropdown(hwnd);
+        return true;
+    }
+    return true;  // swallow everything else while open
+}
+
+// The search box (Classes roster): a dark field with a magnifier, with
+// the real EDIT positioned inside it. Called by drawBlockTabBar with the
+// rect it reserved; registers the click rect and focus stop.
+void drawSearchBox(HDC hdc, const RECT& sr) {
+    bool searchFocused = g_hSearchEdit && GetFocus() == g_hSearchEdit;
+    drawCard(hdc, sr, GRAY_900, searchFocused ? GOLD_500 : GRAY_700, 6);
+    {
+        Graphics g(hdc);
+        g.SetSmoothingMode(SmoothingModeAntiAlias);
+        COLORREF sc = searchFocused ? GOLD_500 : GRAY_400;
+        Pen pen(Color(255, GetRValue(sc), GetGValue(sc), GetBValue(sc)), 1.6f);
+        int icx = sr.left + S(14), icy = (sr.top + sr.bottom) / 2 - S(2);
+        g.DrawEllipse(&pen, icx - S(5), icy - S(5), S(10), S(10));
+        g.DrawLine(&pen, icx + S(3), icy + S(3), icx + S(8), icy + S(8));
+    }
+    g_searchBtnRect = sr;
+    if (g_hSearchEdit) {
+        int editH = S(18);  // ~one text line, so the text sits centered in the box
+        RECT want = {sr.left + S(30), (sr.top + sr.bottom - editH) / 2,
+                     sr.right - S(8), (sr.top + sr.bottom - editH) / 2 + editH};
+        RECT cur; GetWindowRect(g_hSearchEdit, &cur);
+        MapWindowPoints(nullptr, GetParent(g_hSearchEdit), (POINT*)&cur, 2);
+        if (!EqualRect(&cur, &want))
+            MoveWindow(g_hSearchEdit, want.left, want.top,
+                       want.right - want.left, want.bottom - want.top, TRUE);
+        // Native child window: it would paint over any overlay, so it
+        // only shows while no modal / help guide is up (ContentProc
+        // hides it otherwise).
+        bool overlayOpen = g_appModal.kind != MODAL_NONE ||
+                           g_helpCarouselState != HelpCarouselState::Closed;
+        if (!overlayOpen && !IsWindowVisible(g_hSearchEdit)) ShowWindow(g_hSearchEdit, SW_SHOWNA);
+    }
+    addFocusable(g_contentFocusables, FocusKind::SearchBtn, sr, 0, false);
+}
+
+bool searchBoxHit(int mx, int my) { return ptIn(g_searchBtnRect, mx, my); }
+
+// Flagged Pairs fixed toolbar: "Showing N of M flagged pairs" on the
+// left, then right-aligned Export · Filter ▾. (Search lives on the
+// Classes roster only.)
+static int drawFlaggedToolbar(HDC hdc, int x, int y, int width) {
+    int h = S(FLAGGED_TOOLBAR_HEIGHT);
+    RECT bar = {x, y, x + width, y + h};
+    HBRUSH bg = CreateSolidBrush(GRAY_850);
+    FillRect(hdc, &bar, bg);
+    DeleteObject(bg);
+    RECT line = {x, y + h - 1, x + width, y + h};
+    HBRUSH lb = CreateSolidBrush(GRAY_700);
+    FillRect(hdc, &line, lb);
+    DeleteObject(lb);
+
+    SetBkMode(hdc, TRANSPARENT);
+    HFONT of = (HFONT)SelectObject(hdc, g_hFontBodyNew);
+    int ctlH = S(34);
+    int cy = y + (h - ctlH) / 2;
+    int rx = x + width - S(20);
+
+    // Filter ▾ (rightmost)
+    int fw = dropdownAnchorWidth(hdc, DD_PAIR_FILTER, L"Filter: ");
+    RECT fr = {rx - fw, cy, rx, cy + ctlH};
+    rx = fr.left - S(10);
+
+    // Export CSV (left of Filter)
+    const wchar_t* expLabel = L"Export CSV";
+    SIZE es; GetTextExtentPoint32W(hdc, expLabel, (int)wcslen(expLabel), &es);
+    int ew = es.cx + S(28);
+
+    RECT er = {rx - ew, cy, rx, cy + ctlH};
+
+    // Export
+    drawCard(hdc, er, GRAY_800, GRAY_700, 6);
+    SetTextColor(hdc, GRAY_200);
+    DrawTextW(hdc, expLabel, -1, &er, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    g_exportBtnRect = er;
+
+    // Left: what the list is currently showing
+    int total = (int)g_analysisResults.flaggedPairs.size();
+    int shown = countVisibleFlaggedPairs();
+    std::wstring info = L"Showing " + std::to_wstring(shown) + L" of " +
+                        std::to_wstring(total) + L" flagged pairs";
+    SetTextColor(hdc, GRAY_400);
+    RECT ir = {x + S(24), y, er.left - S(12), y + h};
+    DrawTextW(hdc, info.c_str(), -1, &ir, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+    // Focus order left to right: Export, Filter (the anchor registers
+    // its own focusable as it draws).
+    addFocusable(g_contentFocusables, FocusKind::ExportBtn, er, 0, false);
+    drawDropdownAnchor(hdc, fr, DD_PAIR_FILTER, L"Filter: ");
+
+    SelectObject(hdc, of);
+    return h;
 }
 
 // Puts UTF-16 text on the clipboard. Standard Win32 clipboard
@@ -2727,8 +3740,8 @@ void openSourceViewForFlaggedPair(HWND /*hwnd*/, int pairIdx, bool isA) {
     if (pairIdx < 0 || pairIdx >= (int)g_analysisResults.flaggedPairs.size())
         return;
     const auto& pr = g_analysisResults.flaggedPairs[pairIdx];
-    openSourceCompareModal(pr.pathA, s2w(pr.filenameA),
-                           pr.pathB, s2w(pr.filenameB), isA);
+    openSourceCompareModal(pr.pathA, s2w(pr.filenameA), pr.studentA.studentName,
+                           pr.pathB, s2w(pr.filenameB), pr.studentB.studentName, isA);
 }
 
 void selectSeverityFilter(HWND hwnd, PairSeverityFilter f) {
@@ -2832,8 +3845,7 @@ bool exportPairsToCsv(HWND hwnd) {
 // Returns height used (TAB_BAR_HEIGHT)
 // Segmented tab bar (spec §5.6). 40px tall, gray-850 track, active
 // segment gets a maroon-800 fill with a 2px gold-500 underline that
-// SLIDES between segments in 200ms — not snaps. Right-aligned utility
-// cluster: Export / Search / Help.
+// SLIDES between segments in 200ms — not snaps. Help sits right-aligned.
 static int drawTabBar(HDC hdc, int x, int y, int width) {
     SetBkMode(hdc, TRANSPARENT);
 
@@ -2922,34 +3934,8 @@ static int drawTabBar(HDC hdc, int x, int y, int width) {
     DrawTextW(hdc, L"Help", -1, &helpRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     g_helpLinkRect = helpRect;
 
-    // Search icon (magnifying glass, drawn — no glyph font dependency)
-    RECT searchR = {rx - S(28), y + S(8), rx, y + tbH - S(8)};
-    g_searchBtnRect = searchR;
-    {
-        Graphics g(hdc);
-        g.SetSmoothingMode(SmoothingModeAntiAlias);
-        COLORREF sc = g_searchActive ? GOLD_500 : GRAY_400;
-        Pen pen(Color(255, GetRValue(sc), GetGValue(sc), GetBValue(sc)), 1.6f);
-        int cx = searchR.left + S(8), cy = (searchR.top + searchR.bottom) / 2 - 1;
-        g.DrawEllipse(&pen, cx - S(6), cy - S(6), S(10), S(10));
-        g.DrawLine(&pen, cx + S(2), cy + S(2), cx + S(8), cy + S(8));
-    }
-    rx -= S(28) + S(20);
-
-    // Export ▾
-    SIZE expSz; GetTextExtentPoint32W(hdc, L"Export \u25BE", 8, &expSz);
-    RECT expRect = {rx - expSz.cx - S(16), y + S(6), rx, y + tbH - S(6)};
-    g_exportBtnRect = expRect;
-    drawCard(hdc, expRect, g_exportMenuOpen ? GRAY_700 : GRAY_800, GRAY_700, 6);
-    SetTextColor(hdc, GRAY_200);
-    DrawTextW(hdc, L"Export \u25BE", -1, &expRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-    // Focusables for the utility cluster, added here (after all three
-    // rects are known) in true left-to-right visual order — Export,
-    // Search, Help — even though the code above computes them
-    // right-to-left (each rect anchored off the previous one's rx).
-    addFocusable(g_contentFocusables, FocusKind::ExportBtn, expRect, 0, false);
-    addFocusable(g_contentFocusables, FocusKind::SearchBtn, searchR, 0, false);
+    // Export and Search moved to the Flagged Pairs toolbar
+    // (drawFlaggedToolbar) — they only act on pairs.
     addFocusable(g_contentFocusables, FocusKind::HelpLink, helpRect, 0, false);
 
     SelectObject(hdc, oldFont);
@@ -3021,8 +4007,17 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             return 0;
         }
 
-        // Esc closes search (clears filter); Ctrl+F opens it — the
-        // exact keyboard path the accessibility floor (§9) requires.
+        // Dark search box (the EDIT's default colors are light).
+        case WM_CTLCOLOREDIT: {
+            static HBRUSH editBr = CreateSolidBrush(GRAY_900);
+            HDC dc = (HDC)wParam;
+            SetTextColor(dc, GRAY_200);
+            SetBkColor(dc, GRAY_900);
+            return (LRESULT)editBr;
+        }
+
+        // Esc clears search; Ctrl+F focuses it — the exact keyboard
+        // path the accessibility floor (§9) requires.
         case WM_KEYDOWN: {
             // Modal gate (compliance fix item 5, updated for item 2) —
             // Esc always cancels/dismisses regardless of which button
@@ -3033,13 +4028,19 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             // keyboard branch below, including search's own Esc.
             if (g_appModal.kind != MODAL_NONE) {
                 // MODAL_SOURCE_VIEW compare mode: A/B pick the file,
-                // N/P jump to the next/previous matched run (Tab also
+                // N/P jump to the next/previous gold or red highlight (Tab also
                 // toggles files — see the main message loop).
                 if (g_appModal.kind == MODAL_SOURCE_VIEW && g_appModal.sourceCompare) {
                     if (wParam == 'A') { swapSourceViewSide(hwnd, 0); return 0; }
                     if (wParam == 'B') { swapSourceViewSide(hwnd, 1); return 0; }
                     if (wParam == 'N') { jumpSourceViewMatch(hwnd, +1); return 0; }
                     if (wParam == 'P') { jumpSourceViewMatch(hwnd, -1); return 0; }
+                    // H toggles "How to read"; Esc closes it before the modal.
+                    if (wParam == 'H' || (wParam == VK_ESCAPE && g_appModal.sourceLegendOpen)) {
+                        g_appModal.sourceLegendOpen = !g_appModal.sourceLegendOpen;
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                        return 0;
+                    }
                 }
                 // MODAL_SOURCE_VIEW's own scroll keys — Esc still closes
                 // it (checked just below, unchanged), but arrows/Page/
@@ -3114,28 +4115,15 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                 return 0;
             }
 
-            if (wParam == VK_ESCAPE && g_searchActive) {
-                g_searchActive = false;
-                if (g_hSearchEdit) {
-                    ShowWindow(g_hSearchEdit, SW_HIDE);
-                    SetWindowTextW(g_hSearchEdit, L"");
-                }
-                g_searchFilterLower.clear();
-                InvalidateRect(hwnd, nullptr, FALSE);
+            if (dropdownKey(hwnd, wParam)) return 0;
+
+            if (wParam == VK_ESCAPE && !g_searchFilterLower.empty() &&
+                g_currentPage == PAGE_STUDENTS && g_hSearchEdit) {
+                SetWindowTextW(g_hSearchEdit, L"");  // EN_CHANGE clears the filter
                 return 0;
             }
-            if (wParam == 'F' && (GetKeyState(VK_CONTROL) & 0x8000) && !g_searchActive) {
-                g_searchActive = true;
-                if (g_hSearchEdit) {
-                    int editW = S(200), editH = S(26);
-                    int editX = g_searchBtnRect.left - editW - S(8);
-                    int editY = S(4) + (S(TAB_BAR_HEIGHT) - editH) / 2;
-                    if (editX < S(20)) editX = S(20); // fallback if rect not yet painted
-                    MoveWindow(g_hSearchEdit, editX, editY, editW, editH, TRUE);
-                    ShowWindow(g_hSearchEdit, SW_SHOW);
-                    SetFocus(g_hSearchEdit);
-                }
-                InvalidateRect(hwnd, nullptr, FALSE);
+            if (wParam == 'F' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                focusSearchBox(hwnd);
                 return 0;
             }
             // Compliance fix item 2: Ctrl+E exports. Only meaningful
@@ -3156,8 +4144,7 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             // (WM_LBUTTONDOWN, g_tabs[i] branch above) so keyboard and
             // mouse tab switches behave identically, including the
             // sliding underline animation.
-            if ((wParam == VK_LEFT || wParam == VK_RIGHT) && g_state.analysisComplete &&
-                !g_searchActive)
+            if ((wParam == VK_LEFT || wParam == VK_RIGHT) && g_state.analysisComplete)
             {
                 int dir = (wParam == VK_RIGHT) ? 1 : -1;
                 int newPageIdx = (int)g_currentPage + dir;
@@ -3235,6 +4222,14 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                 return 0;
             }
 
+            // Student detail: the Flagged Appearances panel scrolls on
+            // its own while the cursor is over it.
+            if (g_currentPage == PAGE_STUDENTS) {
+                POINT wp = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                ScreenToClient(hwnd, &wp);
+                if (handleStudentsWheel(hwnd, wp.x, wp.y, delta)) return 0;
+            }
+
             int scrollAmount = (delta / WHEEL_DELTA) * 80;
             int newPos = g_scrollY - scrollAmount;
 
@@ -3255,7 +4250,18 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             RECT rect;
             GetClientRect(hwnd, &rect);
             g_viewportH = rect.bottom;
+            // Clamp scroll to the new viewport, then repaint everything:
+            // every layout here is width-relative, and without this
+            // Windows keeps the old pixels and only paints the newly
+            // exposed strip (stale/cut-off content after maximize,
+            // restore, or a sidebar drag).
+            {
+                int maxScroll = g_contentH - g_viewportH;
+                if (maxScroll < 0) maxScroll = 0;
+                if (g_scrollY > maxScroll) g_scrollY = maxScroll;
+            }
             updateScrollbar(hwnd);
+            InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         }
 
@@ -3353,6 +4359,8 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             return 1;
 
         case WM_MOUSEMOVE: {
+            dropdownMouseMove(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+
             // Style DNA strip hover (spec §4.4) — moved into
             // gui_students.cpp (Checkpoint 3 of the ContentProc
             // split). This handler is otherwise page-agnostic (see
@@ -3360,6 +4368,7 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             // unmoved), so this Students-only chunk was easy to miss.
             if (g_currentPage == PAGE_STUDENTS) {
                 handleStudentsDetailMouseMove(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+                handleStudentsGridMouseMove(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             }
 
             // Empty-state option card hover (spec §5.3: lift to
@@ -3387,7 +4396,13 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             return 0;
         }
 
+        case WM_LBUTTONUP:
+        case WM_CAPTURECHANGED:
+            handleStudentsMouseUp();
+            return 0;
+
         case WM_MOUSELEAVE:
+            clearStudentsGridHover(hwnd);
             if (g_dnaHoveredCell != -1) {
                 g_dnaHoveredCell = -1;
                 InvalidateRect(hwnd, nullptr, FALSE);
@@ -3419,6 +4434,14 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                     auto inR = [&](const RECT& r) {
                         return mx >= r.left && mx < r.right && my >= r.top && my < r.bottom;
                     };
+                    // "How to read": its button toggles the panel; while
+                    // the panel is open, any other click just closes it.
+                    if (inR(g_sourceViewLegendBtnRect) || g_appModal.sourceLegendOpen) {
+                        g_appModal.sourceLegendOpen = !g_appModal.sourceLegendOpen &&
+                                                      inR(g_sourceViewLegendBtnRect);
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                        return 0;
+                    }
                     if (inR(g_sourceViewTabRects[0]))      swapSourceViewSide(hwnd, 0);
                     else if (inR(g_sourceViewTabRects[1])) swapSourceViewSide(hwnd, 1);
                     else if (inR(g_sourceViewPrevRect))    jumpSourceViewMatch(hwnd, -1);
@@ -3498,6 +4521,32 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                 }
             }
 
+            // Dropdowns: an open list owns every click; anchors open.
+            if (g_state.analysisComplete && handleDropdownClick(hwnd, mx, my)) return 0;
+
+            // "Set up AI…" links (Overview AI section, per-pair AI notes)
+            for (const auto& lr : g_aiSetupLinkRects) {
+                if (mx >= lr.left && mx < lr.right &&
+                    my + g_scrollY >= lr.top && my + g_scrollY < lr.bottom) {
+                    openAiSettingsDialog(g_hMainWindow);
+                    return 0;
+                }
+            }
+
+            // Flagged Pairs fixed toolbar (Export; the Filter anchor is
+            // handled just above). The whole band is consumed so a click
+            // there can never reach a pair row scrolled underneath it.
+            if (g_state.analysisComplete && g_currentPage == PAGE_FLAGGED) {
+                int tbTop = S(4) + S(TAB_BAR_HEIGHT) + S(CONTEXT_STRIP_HEIGHT);
+                if (my >= tbTop && my < tbTop + S(FLAGGED_TOOLBAR_HEIGHT)) {
+                    if (ptIn(g_exportBtnRect, mx, my)) {
+                        if (exportPairsToCsv(hwnd))
+                            showToast(L"Exported all analyzed pairs to CSV.", TOAST_SUCCESS);
+                    }
+                    return 0;
+                }
+            }
+
             // Tab click? (Tabs are at fixed Y at top, not scrolled)
             if (my >= S(4) && my < S(4) + S(TAB_BAR_HEIGHT)) {
                 for (int i = 0; i < 3; ++i) {
@@ -3518,26 +4567,6 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                     return 0;
                 }
 
-                // Export (spec §5.6, broken item #10) — CSV is the
-                // concrete deliverable; see exportPairsToCsv() for why
-                // PDF/print aren't part of this pass.
-                if (mx >= g_exportBtnRect.left && mx < g_exportBtnRect.right &&
-                    my >= g_exportBtnRect.top  && my < g_exportBtnRect.bottom)
-                {
-                    if (exportPairsToCsv(hwnd)) {
-                        showToast(L"Exported all analyzed pairs to CSV.", TOAST_SUCCESS);
-                    }
-                    return 0;
-                }
-
-                // Search icon — reveals a real input box (spec §5.6/
-                // §5.8), live-filters the current tab's cards.
-                if (mx >= g_searchBtnRect.left && mx < g_searchBtnRect.right &&
-                    my >= g_searchBtnRect.top  && my < g_searchBtnRect.bottom)
-                {
-                    toggleSearchBox(hwnd);
-                    return 0;
-                }
             }
 
             // Sticky context strip: Re-run button (spec §5.6)
@@ -3646,6 +4675,8 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             // is already populated, same "rebuild every frame"
             // pattern as those vectors themselves).
             g_contentFocusables.clear();
+            g_dropdownAnchors.clear();
+            g_aiSetupLinkRects.clear();
 
             // Background
             FillRect(hdc, &rect, g_hbrMain);
@@ -3681,6 +4712,14 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                 if (g_currentPage == PAGE_STUDENTS && g_selectedStudent < 0) {
                     drawBlockTabBar(hdc, 0, pageContentStartY, contentW);
                     pageContentStartY += S(BLOCK_TAB_BAR_HEIGHT);
+                }
+
+                // Flagged Pairs gets the same kind of fixed second row:
+                // Export / Search / Filter, which stay put while the
+                // pair list scrolls.
+                if (g_currentPage == PAGE_FLAGGED) {
+                    drawFlaggedToolbar(hdc, 0, pageContentStartY, contentW);
+                    pageContentStartY += S(FLAGGED_TOOLBAR_HEIGHT);
                 }
 
                 int contentY = pageContentStartY - g_scrollY;
@@ -3739,14 +4778,46 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                 totalUsed += drawWelcomeScreen(hdc, contentX, contentY + totalUsed, contentW);
             }
 
+            // The search box exists only on the Classes roster.
+            bool showSearch = g_state.analysisComplete && g_analysisResults.valid &&
+                              g_currentPage == PAGE_STUDENTS && g_selectedStudent < 0 &&
+                              g_appModal.kind == MODAL_NONE &&
+                              g_helpCarouselState == HelpCarouselState::Closed;
+            if (!showSearch && g_hSearchEdit && IsWindowVisible(g_hSearchEdit)) {
+                if (GetFocus() == g_hSearchEdit) SetFocus(hwnd);
+                ShowWindow(g_hSearchEdit, SW_HIDE);
+            }
+
             // Update content height
             int extraBarH = (g_currentPage == PAGE_STUDENTS && g_selectedStudent < 0)
-                ? S(BLOCK_TAB_BAR_HEIGHT) : 0;
+                ? S(BLOCK_TAB_BAR_HEIGHT)
+                : (g_currentPage == PAGE_FLAGGED ? S(FLAGGED_TOOLBAR_HEIGHT) : 0);
             int newContentH = totalUsed + S(4) +
                 (g_state.analysisComplete ? S(TAB_BAR_HEIGHT) + S(CONTEXT_STRIP_HEIGHT) + extraBarH : 0);
             if (newContentH != g_contentH) {
                 g_contentH = newContentH;
                 updateScrollbar(hwnd);
+            }
+
+            // Deep-link auto-scroll (jumpToFlaggedPair): drawFlaggedPairs
+            // just recorded the target pair's offset, and g_contentH is
+            // now current, so scroll there (same clamp as WM_MOUSEWHEEL)
+            // and repaint immediately. One-shot — cleared either way.
+            if (g_pendingScrollPairIdx >= 0) {
+                if (g_currentPage == PAGE_FLAGGED && g_pendingScrollPairOffset >= 0) {
+                    int target = g_pendingScrollPairOffset - S(10);
+                    int maxScroll = g_contentH - g_viewportH;
+                    if (maxScroll < 0) maxScroll = 0;
+                    if (target > maxScroll) target = maxScroll;
+                    if (target < 0) target = 0;
+                    if (target != g_scrollY) {
+                        g_scrollY = target;
+                        updateScrollbar(hwnd);
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                }
+                g_pendingScrollPairIdx    = -1;
+                g_pendingScrollPairOffset = -1;
             }
 
             // Overlay layer (bug fix: was drawn directly on hdcScreen
@@ -3782,6 +4853,8 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             if (g_currentPage == PAGE_STUDENTS) {
                 drawStudentDnaTooltip(hdc, rect);
             }
+
+            drawDropdownList(hdc, rect);
 
             // In-app toast/modal/carousel overlay (compliance fix item 5)
             drawToasts(hdc, rect);
@@ -3941,16 +5014,6 @@ void onRunAnalysis(HWND hwnd) {
     t.detach();
 }
 
-static void onViewReport(HWND hwnd) {
-    if (g_state.lastReport.empty()) {
-        showToast(L"No report available yet. Please run an analysis first.", TOAST_INFO);
-        return;
-    }
-
-    ShellExecuteW(nullptr, L"open", g_state.lastReport.c_str(),
-                  nullptr, nullptr, SW_SHOWNORMAL);
-}
-
 // ═════════════════════════════════════════════════════════════
 // MENU COMMAND HANDLING
 // ═════════════════════════════════════════════════════════════
@@ -3975,12 +5038,12 @@ static void handleMenuCommand(HWND hwnd, int commandId) {
             onRunAnalysis(hwnd);
             break;
 
-        case ID_FILE_EXIT:
-            DestroyWindow(hwnd);
+        case ID_FILE_AI_SETTINGS:
+            openAiSettingsDialog(hwnd);
             break;
 
-        case ID_VIEW_REPORT:
-            onViewReport(hwnd);
+        case ID_FILE_EXIT:
+            DestroyWindow(hwnd);
             break;
 
         case ID_VIEW_PROFILES:
@@ -4065,7 +5128,11 @@ static void activateFocused() {
             break;
 
         case FocusKind::SearchBtn:
-            toggleSearchBox(g_hContent);
+            focusSearchBox(g_hContent);
+            break;
+
+        case FocusKind::DropdownAnchor:
+            openDropdown(g_hContent, item->dataIndex);
             break;
 
         case FocusKind::ExportBtn:
@@ -4195,7 +5262,7 @@ static void layoutSidebarControls(HWND hSidebar) {
     // Kept as the same literal design-space numbers used in
     // SidebarProc's WM_PAINT (each independently wrapped in S()) —
     // see the comment there for why this coupling exists.
-    int y = S(196) + S(18) + S(38) + S(10);
+    int y = sidebarZone1Top(h) + S(18) + S(38) + S(10);
 
     if (g_hBtnSelectFolder)
         MoveWindow(g_hBtnSelectFolder, btnX, y, btnW, S(BUTTON_HEIGHT), TRUE);
@@ -4213,8 +5280,11 @@ static void layoutSidebarControls(HWND hSidebar) {
     int runY = h - S(16) - statusH - runH;
     int chkY = runY - chkH - S(10);
 
+    // No key: the checkbox shrinks to its label so a "Set up AI…" link
+    // (painted by SidebarProc) fits beside it.
     if (g_hChkAiSummary)
-        MoveWindow(g_hChkAiSummary, btnX, chkY, btnW, chkH, TRUE);
+        MoveWindow(g_hChkAiSummary, btnX, chkY,
+                   aiKeyConfigured() ? btnW : S(170), chkH, TRUE);
     if (g_hBtnRunAnalysis)
         MoveWindow(g_hBtnRunAnalysis, btnX, runY, btnW, runH, TRUE);
 }
@@ -4310,9 +5380,22 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg,
                 hwnd, nullptr, hInst, nullptr);
 
             g_hContent = CreateWindowExW(0, L"AuthorshipContent", L"",
-                WS_CHILD | WS_VISIBLE | WS_VSCROLL,
+                WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_CLIPCHILDREN,  // clip: search EDIT lives inside
                 SIDEBAR_WIDTH, 0, 800, 600,
                 hwnd, nullptr, hInst, nullptr);
+
+            // Dark scrollbar for the content pane: the native one was
+            // light gray, a bright strip down the right edge of every
+            // results page. "DarkMode_Explorer" is the system's own dark
+            // scrollbar theme (Windows 10 1809+). uxtheme is loaded
+            // dynamically, same reason as the DPI calls above (Windows 7
+            // target pin, no extra link dependency); on older systems
+            // the call simply doesn't happen and the light bar remains.
+            if (HMODULE hUx = LoadLibraryW(L"uxtheme.dll")) {
+                typedef HRESULT (WINAPI *PFN_SetWindowTheme)(HWND, LPCWSTR, LPCWSTR);
+                auto pSetTheme = (PFN_SetWindowTheme)GetProcAddress(hUx, "SetWindowTheme");
+                if (pSetTheme) pSetTheme(g_hContent, L"DarkMode_Explorer", nullptr);
+            }
 
             // Real search input (spec §5.6/§5.8) — hidden by default,
             // shown/positioned when the search icon is toggled on.
@@ -4320,11 +5403,13 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg,
             // entry, since text input (cursor, selection, IME) is a
             // solved problem the native control already handles
             // correctly.
-            g_hSearchEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+            g_hSearchEdit = CreateWindowExW(0, L"EDIT", L"",
                 WS_CHILD | ES_AUTOHSCROLL,
                 0, 0, 200, 26,
                 g_hContent, (HMENU)ID_SEARCH_EDIT, hInst, nullptr);
             SendMessage(g_hSearchEdit, WM_SETFONT, (WPARAM)g_hFontBodyNew, TRUE);
+            g_searchEditOrigProc = (WNDPROC)SetWindowLongPtrW(
+                g_hSearchEdit, GWLP_WNDPROC, (LONG_PTR)SearchEditProc);
 
             createSidebarButtons(g_hSidebar);
 
@@ -4416,11 +5501,11 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg,
                 // Hero stats are painted by the CONTENT child window,
                 // not the main window this timer fires on — same
                 // pattern as TIMER_ANIM above. Self-kills once the
-                // last-staggered card (index 2, 120ms delay + 600ms
+                // last-staggered column (index 3, 180ms delay + 600ms
                 // ramp) has fully completed.
                 if (g_hContent) InvalidateRect(g_hContent, nullptr, FALSE);
                 DWORD elapsed = GetTickCount() - g_statsAnimStartTick;
-                if (elapsed > (2 * STAT_COUNTUP_STAGGER_MS + STAT_COUNTUP_MS + 50)) {
+                if (elapsed > (3 * STAT_COUNTUP_STAGGER_MS + STAT_COUNTUP_MS + 50)) {
                     g_statsAnimActive = false;
                     KillTimer(hwnd, TIMER_STAT_COUNTUP);
                 }
@@ -4448,24 +5533,14 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg,
 
             updateUI();
 
-            // Log completion with report hash for tamper-evidence
+            // Log completion
             if (g_analysisResults.valid) {
-                std::string reportPath = toNarrowGC(g_state.lastReport);
-                std::string hash = reportPath.empty() ? "" : audit_sha256File(reportPath);
                 audit_log("ANALYSIS COMPLETE",
                     "Files analyzed: " + std::to_string(g_state.fileCount) + "\n" +
                     "Students profiled: " + std::to_string(g_analysisResults.profiles.size()) + "\n" +
                     "Total pairs: " + std::to_string(g_analysisResults.totalPairs) + "\n" +
                     "Pairs flagged: " + std::to_string(g_analysisResults.flaggedCount) + "\n" +
-                    "Exact duplicates: " + std::to_string(g_analysisResults.exactDuplicates) + "\n" +
-                    "Report file: " + reportPath + "\n" +
-                    "Report: " + hash);
-            }
-
-            // Auto-open the report
-            if (!g_state.lastReport.empty()) {
-                ShellExecuteW(nullptr, L"open", g_state.lastReport.c_str(),
-                              nullptr, nullptr, SW_SHOWNORMAL);
+                    "Exact duplicates: " + std::to_string(g_analysisResults.exactDuplicates));
             }
             return 0;
 
@@ -4509,6 +5584,11 @@ int runGUI(HINSTANCE hInstance)
 
     // GDI+ must init before any drawing (including splash screen)
     initGdiPlus();
+
+    // Secrets: one-time import of legacy api_key.txt / calss_gc_token.json
+    // into Windows Credential Manager — before any window exists (see
+    // migrateLegacySecretsEarly). The notice is shown once the UI is up.
+    migrateLegacySecretsEarly();
 
     // Show splash screen while initializing
     showSplashScreen(hInstance);
@@ -4568,6 +5648,11 @@ int runGUI(HINSTANCE hInstance)
     UpdateWindow(g_hMainWindow);
     layoutChildren(g_hMainWindow);
 
+    // Tell the user if the startup import moved/kept any files, then set
+    // the AI toggle for whether a key is saved.
+    showLegacySecretMigrationNotice();
+    syncAiSummaryCheckbox(false);
+
     MSG msg = {};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         // Keyboard focus (compliance sweep item 2): Tab/Shift+Tab and
@@ -4585,6 +5670,11 @@ int runGUI(HINSTANCE hInstance)
         bool inScopeWindow = (msg.hwnd == g_hMainWindow || msg.hwnd == g_hSidebar ||
                                msg.hwnd == g_hContent);
         bool searchEditFocused = g_hSearchEdit && (GetFocus() == g_hSearchEdit);
+
+        if (msg.message == WM_KEYDOWN && inScopeWindow && g_dropdown.id != DD_NONE) {
+            dropdownKey(g_hContent, msg.wParam);
+            continue;
+        }
 
         if (msg.message == WM_KEYDOWN && inScopeWindow && !searchEditFocused) {
             if (msg.wParam == VK_TAB) {
