@@ -11,20 +11,6 @@
 #include "knn_model.h"
 #include "results_data.h"
 
-// ── Result of an AI summary generation attempt ────────────────
-struct AISummary {
-    std::string text;       // The generated summary
-    bool        success;    // True if API call succeeded
-    std::string error;      // Error message if failed
-    bool        skipped;    // True if no API key found (graceful skip)
-};
-
-// ── Public functions (legacy, single-blob summary) ────────────
-// Unchanged — this is the pipeline entry point at main.cpp:2201, and the
-// separate legacy CLI call site (~main.cpp:2415). Left untouched per the
-// out-of-scope decision on the CLI path; the tiered functions below are
-// the new call path for the main GUI pipeline.
-
 // Reads the Gemini API key from Windows Credential Manager (importing a
 // legacy api_key.txt once if one is still lying around — see
 // secret_store.h). Returns empty string if no key is configured.
@@ -36,15 +22,6 @@ bool gemini_hasKey();
 bool gemini_saveKey(const std::string& key);
 bool gemini_removeKey();
 bool gemini_testKey(const std::string& apiKey, std::string& error);
-
-// Builds the prompt sent to Gemini based on analysis results
-std::string buildPrompt(const std::vector<PairResult>& flagged,
-                        AuthorshipScorer& scorer);
-
-// Calls Gemini API and returns the generated summary
-// If no API key is found, returns AISummary with skipped=true
-AISummary generateAISummary(const std::vector<PairResult>& flagged,
-                             AuthorshipScorer& scorer);
 
 // ── Tiered AI outputs (restructure) ────────────────────────────
 // Input type is PairAnalysisDisplay, not PairResult — confirmed by the

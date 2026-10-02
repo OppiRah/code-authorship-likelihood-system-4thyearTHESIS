@@ -147,96 +147,6 @@ bool gemini_saveKey(const std::string& key) {
 bool gemini_removeKey() { return secretDelete(SECRET_GEMINI_KEY); }
 
 // ═════════════════════════════════════════════════════════════
-// PROMPT BUILDING
-// ═════════════════════════════════════════════════════════════
-
-std::string buildPrompt(const std::vector<PairResult>& flagged,
-                        AuthorshipScorer& scorer)
-{
-    std::ostringstream prompt;
-
-    prompt << "You are an academic integrity analyst reviewing code authorship "
-              "verification results for a programming instructor. Below is detailed "
-              "analysis data from a code authorship scoring system that compares "
-              "student exam submissions against their established style profiles.\n\n";
-
-    prompt << "YOUR TASK:\n";
-    prompt << "Write a structured instructor briefing with these sections:\n\n";
-    prompt << "1. PRIORITY CASES - Which pairs need immediate attention and why. "
-              "Rank them by concern level.\n";
-    prompt << "2. PATTERN ANALYSIS - Are multiple flagged pairs connected? Do any "
-              "students appear across multiple flags? Are there clusters suggesting "
-              "a shared external source?\n";
-    prompt << "3. STYLE INCONSISTENCY DETAILS - For the most concerning cases, "
-              "explain specifically which style dimensions (naming, comments, "
-              "formatting, structure) deviate from the student's profile and what "
-              "that might indicate.\n";
-    prompt << "4. RECOMMENDED ACTIONS - Concrete next steps the instructor should "
-              "take (e.g., compare specific submissions side-by-side, interview "
-              "specific students, check supervised exam performance).\n\n";
-
-    prompt << "RULES:\n";
-    prompt << "- DO NOT name any student as the 'copier' or 'cheater'\n";
-    prompt << "- DO NOT make definitive accusations\n";
-    prompt << "- DO use student names when describing findings\n";
-    prompt << "- DO be specific about which features mismatch and what values differ\n";
-    prompt << "- DO identify the student in each pair whose submission shows LOWER "
-              "style consistency (they are the one worth investigating)\n";
-    prompt << "- DO end by reminding that all determinations rest with the instructor\n";
-    prompt << "- Use plain professional language\n";
-    prompt << "- Keep it under 400 words total\n\n";
-
-    prompt << "ANALYSIS DATA:\n";
-    prompt << "Total flagged pairs: " << flagged.size() << "\n\n";
-
-    for (size_t i = 0; i < flagged.size(); ++i) {
-        const auto& pair = flagged[i];
-        prompt << "--- PAIR " << (i + 1) << " ---\n";
-        prompt << "Files: " << pair.studentA << " vs " << pair.studentB << "\n";
-        prompt << "Combined similarity: " << pair.combinedScore << "% ("
-               << pair.label << ")\n";
-
-        // Get authorship results with full detail
-        AuthorshipResult rA = scorer.score(pair.studentA, pair.pathA);
-        AuthorshipResult rB = scorer.score(pair.studentB, pair.pathB);
-
-        if (rA.success) {
-            int matches = 0, total = (int)rA.styleMatch.size();
-            for (const auto& note : rA.styleMatch)
-                if (note.find("[MATCH]") != std::string::npos &&
-                    note.find("[MISMATCH]") == std::string::npos) ++matches;
-            prompt << pair.studentA << ": " << rA.scorePct << "% authorship ("
-                   << rA.label << "), profile from " << rA.profileSize
-                   << " submissions, " << matches << "/"
-                   << total << " features matched\n";
-            // Send individual feature details
-            for (const auto& note : rA.styleMatch) {
-                prompt << "  " << note << "\n";
-            }
-        }
-
-        if (rB.success) {
-            int matches = 0, total = (int)rB.styleMatch.size();
-            for (const auto& note : rB.styleMatch)
-                if (note.find("[MATCH]") != std::string::npos &&
-                    note.find("[MISMATCH]") == std::string::npos) ++matches;
-            prompt << pair.studentB << ": " << rB.scorePct << "% authorship ("
-                   << rB.label << "), profile from " << rB.profileSize
-                   << " submissions, " << matches << "/"
-                   << total << " features matched\n";
-            for (const auto& note : rB.styleMatch) {
-                prompt << "  " << note << "\n";
-            }
-        }
-        prompt << "\n";
-    }
-
-    prompt << "Generate the instructor briefing now:";
-
-    return prompt.str();
-}
-
-// ═════════════════════════════════════════════════════════════
 // API CALL
 // ═════════════════════════════════════════════════════════════
 
@@ -394,68 +304,10 @@ static std::string callGeminiAPI(const std::string& apiKey,
 #endif
 
 // ═════════════════════════════════════════════════════════════
-// MAIN ENTRY
-// ═════════════════════════════════════════════════════════════
-
-AISummary generateAISummary(const std::vector<PairResult>& flagged,
-                             AuthorshipScorer& scorer)
-{
-    AISummary result;
-    result.success = false;
-    result.skipped = false;
-
-    // Load API key
-    std::string apiKey = loadApiKey();
-    if (apiKey.empty()) {
-        result.skipped = true;
-        result.error = "No API key configured. AI summary skipped.";
-        return result;
-    }
-
-    if (flagged.empty()) {
-        result.skipped = true;
-        result.error = "No flagged pairs to summarize.";
-        return result;
-    }
-
-    // Build prompt
-    std::string prompt = buildPrompt(flagged, scorer);
-
-#ifdef _WIN32
-    // Call API
-    std::string error;
-    std::string response = callGeminiAPI(apiKey, prompt, error);
-
-    if (response.empty()) {
-        result.success = false;
-        result.error = error;
-        return result;
-    }
-
-    // Parse response
-    std::string text = extractTextFromJson(response);
-    if (text.empty()) {
-        result.success = false;
-        result.error = "Could not parse API response";
-        return result;
-    }
-
-    result.text = text;
-    result.success = true;
-    return result;
-#else
-    result.success = false;
-    result.error = "AI summary only supported on Windows";
-    return result;
-#endif
-}
-
-// ═════════════════════════════════════════════════════════════
 // TIERED AI OUTPUTS (restructure)
 //
-// Reuses loadApiKey(), jsonEscape(), toWide(), and callGeminiAPI() above
-// unchanged. Everything below is additive; nothing above this point was
-// modified beyond the two #include lines and the header signature list.
+// Uses loadApiKey(), jsonEscape(), toWide(), callGeminiAPI() and
+// extractTextFromJson() above.
 // ═════════════════════════════════════════════════════════════
 
 // ── Evidence formatting ─────────────────────────────────────────

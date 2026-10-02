@@ -135,15 +135,8 @@ struct AnalysisResults {
     std::string dataFolder;
     std::string timestamp;
 
-    bool        aiSummarySuccess;
-    bool        aiSummarySkipped;
-    std::string aiSummaryText;
-    std::string aiSummaryError;
-
-    // Tiered AI outputs (restructure). Additive alongside the aiSummary*
-    // fields above, which remain wired to the legacy CLI path only
-    // (main.cpp's commented-"kept for scripting/testing" branch) and are
-    // otherwise unused once the GUI pipeline switches to these two.
+    // Tiered AI outputs: per-pair narratives (Tier 1) and cross-pair
+    // patterns (Tier 2).
     // aiPairNarratives is parallel to flaggedPairs below (same size, same
     // order) once populated -- see generatePairNarratives()'s contract.
     std::vector<AIPairNarrative> aiPairNarratives;

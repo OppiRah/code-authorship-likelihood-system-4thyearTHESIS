@@ -1784,41 +1784,23 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
         g_analysisResults.allPairs.push_back(row);
     }
 
-    // AI Summary
-    AISummary aiSummary;
-    aiSummary.success = false;
-    aiSummary.skipped = false;
-
+    // AI outputs: per-pair narratives (Tier 1, Flagged Pairs tab) and
+    // cross-pair patterns (Tier 2, Overview). Gated by the pre-run
+    // useAI toggle; no separate mid-flow prompt.
     if (useAI && !flagged.empty()) {
         reportProgress(AnalysisPhase::GeneratingSummary, 0, 1);
-        aiSummary = generateAISummary(flagged, scorer);
-        reportProgress(AnalysisPhase::GeneratingSummary, 1, 1);
-    } else {
-        aiSummary.skipped = true;
-        aiSummary.error = "AI summary not requested.";
-    }
-
-    g_analysisResults.aiSummarySuccess = aiSummary.success;
-    g_analysisResults.aiSummarySkipped = aiSummary.skipped;
-    g_analysisResults.aiSummaryText    = aiSummary.text;
-    g_analysisResults.aiSummaryError   = aiSummary.error;
-
-    // Tiered AI outputs (restructure) — additive alongside the legacy
-    // aiSummary block above, which feeds the Overview AI summary (approved:
-    // run both, revisit the extra API cost later if it becomes a problem).
-    // Gated by the same pre-run useAI toggle; no separate mid-flow prompt.
-    if (useAI && !flagged.empty()) {
         g_analysisResults.aiPairNarratives =
             generatePairNarratives(g_analysisResults.flaggedPairs);
         g_analysisResults.aiBatchPatterns =
             generateCrossPairPatterns(g_analysisResults.flaggedPairs);
+        reportProgress(AnalysisPhase::GeneratingSummary, 1, 1);
     } else {
         g_analysisResults.aiBatchPatterns.skipped = true;
         g_analysisResults.aiBatchPatterns.success = false;
         g_analysisResults.aiBatchPatterns.error   = "AI summary not requested.";
-        // aiPairNarratives left as an empty vector -- gui.cpp should treat
-        // "empty vector" the same as "not requested," same as it would for
-        // zero flagged pairs.
+        // aiPairNarratives left as an empty vector -- the GUI treats
+        // "empty vector" the same as "not requested," same as it would
+        // for zero flagged pairs.
     }
 
     // Timestamp
