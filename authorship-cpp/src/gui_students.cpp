@@ -969,8 +969,6 @@ int drawStudentDetailPage(HDC hdc, int x, int y, int width,
             RECT rowR = {c3X + S(12), ry,
                          c3X + c3W - S(12) - (faScrolls ? S(12) : 0), ry + rowH - S(2)};
 
-            bool hovered = false; // hover-state tracking omitted for
-                                    // this pass; click works regardless
             HBRUSH rowBg = CreateSolidBrush(GRAY_800);
             FillRect(hdc, &rowR, rowBg);
             DeleteObject(rowBg);

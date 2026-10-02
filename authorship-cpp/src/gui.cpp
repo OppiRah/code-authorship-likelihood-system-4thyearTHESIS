@@ -1738,7 +1738,6 @@ static bool  g_tabUnderlineInit = false;
 // in the tab row.
 static RECT g_exportBtnRect = {};
 static RECT g_searchBtnRect = {};
-static bool g_exportMenuOpen = false;
 // Real EDIT control for the Classes search box. Shown only on the
 // Classes roster, positioned inside its fixed block bar every paint by
 // drawSearchBox(); hidden everywhere else.
@@ -1894,9 +1893,8 @@ std::vector<ExpandedPairHeaderRect> g_expandedPairHeaderRects;
 // studentB — a plain flat set is enough since these are small ints
 // and don't need a richer key type.
 // Not static as of Checkpoint 2 of the ContentProc split: also read
-// by drawAuthorshipCard()/estimateAuthorshipCardHeight() in
-// gui_flagged.cpp. showAllFeaturesKey() itself moved there — it was
-// exclusively used by those two.
+// by the expanded-pair comparison in gui_flagged.cpp, where
+// showAllFeaturesKey() itself lives.
 std::set<int> g_showAllFeaturesKeys;
 std::vector<ShowAllFeaturesRect> g_showAllFeaturesRects;
 
@@ -3063,7 +3061,7 @@ void drawDnaStrip(HDC hdc, int x, int y,
 
 // dnaDeviationFlags() and dnaValuesFromPair() moved to gui_flagged.cpp
 // (Checkpoint 2 of the ContentProc split) — exclusively used by
-// drawFlaggedPairCollapsedRow()/drawAuthorshipCard() there.
+// the collapsed row and the expanded comparison there.
 
 // ── Gold eyebrow label ────────────────────────────────────────
 // The connective tissue of the design: 11px uppercase gold with
@@ -3131,12 +3129,10 @@ std::wstring truncateMiddle(HDC hdc, const std::wstring& text, int maxWidth) {
     return best;
 }
 
-// drawProgressBar() and scoreColor() moved to gui_flagged.cpp
-// (Checkpoint 2 of the ContentProc split) — exclusively used by
-// drawAuthorshipCard() there. Despite the comment near SidebarProc's
-// forward declarations mentioning drawProgressBar as one of "these
-// primitives... defined later in the file", SidebarProc does not
-// actually call it — verified with a call-site grep before moving.
+// scoreColor() moved to gui_flagged.cpp (Checkpoint 2 of the
+// ContentProc split). drawProgressBar() moved with it and was later
+// deleted along with its only caller, the superseded per-student
+// authorship card.
 
 // scoreColor() above (moved) is signed for AUTHORSHIP LIKELIHOOD (high = matches
 // own profile = good = green). Pair SIMILARITY between two different

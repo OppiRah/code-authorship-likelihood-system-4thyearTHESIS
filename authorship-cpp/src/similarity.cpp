@@ -76,37 +76,6 @@ PairResult analyzePair(const std::string& nameA, const std::string& pathA,
     return result;
 }
 
-std::vector<PairResult> analyzeAll(
-    const std::map<std::string, std::string>& submissions)
-{
-    std::vector<PairResult> results;
-    if (submissions.size() < 2) return results;
-
-    // Collect names in a vector for pairwise iteration
-    std::vector<std::string> names;
-    for (const auto& kv : submissions) names.push_back(kv.first);
-
-    for (size_t i = 0; i < names.size(); ++i) {
-        for (size_t j = i + 1; j < names.size(); ++j) {
-            const std::string& nA = names[i];
-            const std::string& nB = names[j];
-            PairResult r = analyzePair(
-                nA, submissions.at(nA),
-                nB, submissions.at(nB));
-            results.push_back(r);
-        }
-    }
-
-    // Sort: flagged first, then by combined score descending
-    std::sort(results.begin(), results.end(),
-        [](const PairResult& a, const PairResult& b) {
-            if (a.flagged != b.flagged) return a.flagged > b.flagged;
-            return a.combinedScore > b.combinedScore;
-        });
-
-    return results;
-}
-
 std::vector<PairResult> flaggedPairs(const std::vector<PairResult>& results) {
     std::vector<PairResult> out;
     for (const auto& r : results)

@@ -47,11 +47,6 @@ struct SummaryStats {
 PairResult analyzePair(const std::string& nameA, const std::string& pathA,
                        const std::string& nameB, const std::string& pathB);
 
-// Analyze all pairs from a name->path map
-// Returns results sorted: flagged first, then by score descending
-std::vector<PairResult> analyzeAll(
-    const std::map<std::string, std::string>& submissions);
-
 // Filter to flagged pairs only
 std::vector<PairResult> flaggedPairs(const std::vector<PairResult>& results);
 

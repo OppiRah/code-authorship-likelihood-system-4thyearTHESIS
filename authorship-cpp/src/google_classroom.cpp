@@ -98,13 +98,6 @@ static std::wstring toWide(const std::string& s) {
     MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
     return w;
 }
-static std::string toNarrow(const std::wstring& w) {
-    if (w.empty()) return "";
-    int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    std::string s(n - 1, 0);
-    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, &s[0], n, nullptr, nullptr);
-    return s;
-}
 
 // ── Token storage ─────────────────────────────────────────────
 // The token JSON (same shape as the old calss_gc_token.json) lives in
@@ -658,15 +651,6 @@ static bool downloadDriveFile(const std::string& token,
     if (!out.is_open()) return false;
     out.write(res.body.data(), res.body.size());
     return true;
-}
-
-// Extract student name from email (first part before @)
-static std::string nameFromEmail(const std::string& email) {
-    size_t at = email.find('@');
-    std::string name = (at != std::string::npos) ? email.substr(0, at) : email;
-    // Capitalize first letter
-    if (!name.empty()) name[0] = (char)toupper((unsigned char)name[0]);
-    return name;
 }
 
 // ── Sync manifest (for human-readable display only) ────────────

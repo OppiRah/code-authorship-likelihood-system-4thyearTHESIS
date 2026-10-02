@@ -351,37 +351,3 @@ bool normalizeSourceLines(const std::string& source,
     }
     return true;
 }
-
-// ── Self-test (run tokenizer.cpp directly) ────────────────────
-// Uncomment main below and compile with:
-// g++ tokenizer.cpp -o tokenizer_test.exe -std=c++17
-// .\tokenizer_test.exe path\to\file1.c path\to\file2.c
-
-/*
-int main(int argc, char* argv[]) {
-    if (argc < 3) {
-        std::cout << "Usage: tokenizer_test.exe file1.c file2.c\n";
-        return 1;
-    }
-
-    TokenResult r1 = tokenize(argv[1]);
-    TokenResult r2 = tokenize(argv[2]);
-
-    std::cout << "File 1: " << argv[1] << "\n";
-    std::cout << "  Tokens: " << r1.token_count << "\n";
-    std::cout << "  Keywords: ";
-    for (auto& kv : r1.keyword_freq)
-        std::cout << kv.first << "(" << kv.second << ") ";
-    std::cout << "\n";
-
-    std::cout << "File 2: " << argv[2] << "\n";
-    std::cout << "  Tokens: " << r2.token_count << "\n\n";
-
-    SimilarityScore s = computeSimilarity(r1, r2);
-    std::cout << "Jaccard:  " << s.jaccard  * 100 << "%\n";
-    std::cout << "LCS:      " << s.lcs      * 100 << "%\n";
-    std::cout << "Combined: " << s.combined * 100 << "% -> " << s.label << "\n";
-
-    return 0;
-}
-*/
