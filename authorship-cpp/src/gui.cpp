@@ -652,7 +652,7 @@ static HBRUSH g_hbrMain    = nullptr;
 // ═════════════════════════════════════════════════════════════
 // COUNT .C FILES IN A FOLDER
 // ═════════════════════════════════════════════════════════════
-// Mirrors main.cpp's loadFolder(): .c files directly in the folder
+// Mirrors analysis_pipeline.cpp's loadFolder(): .c files directly in the folder
 // plus one level of subfolders (block folders like "BSCS 2A"). The
 // old root-only count reported "0 files" for a block-subfolder
 // dataset — and made Select Folder reject it outright — even though

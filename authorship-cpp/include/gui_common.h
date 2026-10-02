@@ -24,7 +24,7 @@
 // defined in whichever file owns that subsystem (8 in
 // gui_help_carousel.cpp, 4 in gui_sync_sheet.cpp, 3 in
 // gui_overview.cpp, 1 in gui_welcome.cpp, and g_analysisResults in
-// main.cpp) —
+// analysis_pipeline.cpp) —
 // none yet in gui_flagged.cpp or gui_students.cpp: their promoted
 // globals stayed defined in gui.cpp, since code there still needs them
 // too — g_sourceViewBtnRects (View Source feature) followed that same
@@ -534,14 +534,14 @@ struct DnaCellHit { RECT r; std::wstring name; double value; };
 struct AISummaryLinkRect { RECT r; int pairIndex; };
 
 // ─────────────────────────────────────────────────────────────
-// FROM main.cpp — analysis pipeline and the global results object.
-// Declarations only; all four are DEFINED in main.cpp, which does not
-// include this header. Moved out of gui.cpp because every screen file
-// from here on needs g_analysisResults, and the analysis-thread and
-// student-report screens will need the other three.
+// FROM analysis_pipeline.cpp / student_report.cpp — the analysis
+// pipeline, the global results object and the per-student report.
+// Declarations only; DEFINED in those two files, which do not include
+// this header (generateStudentSimilarityReport in student_report.cpp,
+// everything else in analysis_pipeline.cpp).
 //
 // AnalysisPhase / AnalysisProgressCallback come from results_data.h
-// (already included above) — declared once there so both main.cpp and
+// (already included above) — declared once there so both the pipeline and
 // the GUI see the identical enum rather than two copies that could
 // drift apart.
 //

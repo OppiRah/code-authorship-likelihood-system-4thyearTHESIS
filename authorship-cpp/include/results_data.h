@@ -9,7 +9,7 @@
 #include <vector>
 #include <functional>
 
-// Progress instrumentation (spec §5.5) — shared between main.cpp
+// Progress instrumentation (spec §5.5) — shared between analysis_pipeline.cpp
 // (which reports) and gui.cpp (which consumes). Declared once here
 // so both translation units see the exact same enum, rather than
 // each declaring their own copy that could silently drift apart.

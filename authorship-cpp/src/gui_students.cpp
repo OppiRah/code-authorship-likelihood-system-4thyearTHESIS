@@ -121,7 +121,7 @@ struct StudentFlagSummary { int count; double maxScore; };
 //
 // Students are matched EXACTLY by the pipeline's own student identity
 // (AuthorshipDisplay::studentName for flagged pairs, studentNameForFile
-// for allPairs filenames — both extractStudentName in main.cpp), not
+// for allPairs filenames — both extractStudentName in analysis_pipeline.cpp), not
 // by case-insensitive substring as before, which counted "LuisDizon"'s
 // pairs toward a student named "Luis" too.
 //

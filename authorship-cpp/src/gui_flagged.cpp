@@ -857,7 +857,7 @@ static void resolvePairNarrativeText(int pairIdx, std::wstring& text,
         color = RISK_MOD;
         return;
     }
-    // Skipped, or no entry at all -- main.cpp leaves aiPairNarratives as
+    // Skipped, or no entry at all -- analysis_pipeline.cpp leaves aiPairNarratives as
     // an empty vector when AI wasn't requested for the run, so "no entry"
     // and "explicitly skipped" both land here, using whatever reason
     // string is available.

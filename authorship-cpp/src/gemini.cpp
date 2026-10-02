@@ -322,7 +322,7 @@ static std::string callGeminiAPI(const std::string& apiKey,
 // match count is given as context so the model can judge how isolated
 // a deviation is against the rest of that student's profile. Every value
 // here comes directly from StyleNoteDisplay fields already populated by
-// parseStyleNote() in main.cpp -- nothing is computed or inferred here.
+// parseStyleNote() in analysis_pipeline.cpp -- nothing is computed or inferred here.
 static std::string formatStudentEvidence(const AuthorshipDisplay& d) {
     std::ostringstream out;
     out << std::fixed << std::setprecision(3);

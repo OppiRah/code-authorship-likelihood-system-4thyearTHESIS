@@ -26,18 +26,13 @@ if exist "%WORK%" rmdir /s /q "%WORK%"
 mkdir "%WORK%" || exit /b 1
 
 echo Building harness...
-REM main.cpp still defines the app's main(); rename it for this build so
-REM the harness can supply its own.
-g++ -std=c++17 -O2 -I include -Dmain=calss_app_main -c src/main.cpp -o "%WORK%\main.o" || goto :buildfail
+REM Same compiler flags as compile.bat. Only the pipeline and what it
+REM depends on are linked: no GUI, no main.cpp.
 g++ -std=c++17 -O2 -static-libgcc -static-libstdc++ -I include ^
-    tests/golden_harness.cpp "%WORK%\main.o" ^
+    tests/golden_harness.cpp src/analysis_pipeline.cpp ^
     src/tokenizer.cpp src/features.cpp src/knn_model.cpp src/similarity.cpp ^
-    src/gemini.cpp src/google_classroom.cpp src/audit_log.cpp ^
-    src/gui.cpp src/gui_sync_sheet.cpp src/gui_assign_dialog.cpp ^
-    src/gui_help_carousel.cpp src/gui_welcome.cpp src/gui_overview.cpp ^
-    src/gui_flagged.cpp src/gui_students.cpp src/gui_ai_settings.cpp ^
-    src/secret_store.cpp src/app_paths.cpp ^
-    -lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus -ladvapi32 ^
+    src/gemini.cpp src/secret_store.cpp src/app_paths.cpp src/audit_log.cpp ^
+    -lwinhttp -lshell32 -ladvapi32 ^
     -o "%WORK%\golden_harness.exe" || goto :buildfail
 
 set FAILED=0

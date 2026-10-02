@@ -793,7 +793,7 @@ GCResult gc_downloadSubmissions(HWND parent,
     // against each other — a Midterm Exam and a Final Exam cover
     // completely different problems, so comparing them produces
     // statistically meaningless noise. See the period-aware grouping
-    // in main.cpp's pairwise comparison loop.
+    // in analysis_pipeline.cpp's pairwise comparison loop.
     std::string titleLower = assignmentTitle;
     std::transform(titleLower.begin(), titleLower.end(), titleLower.begin(), ::tolower);
 
@@ -844,7 +844,7 @@ GCResult gc_downloadSubmissions(HWND parent,
     }
 
     // Combine into a single category tag, then a "__" delimiter before
-    // the student name — this makes parsing on the read side (main.cpp)
+    // the student name — this makes parsing on the read side (analysis_pipeline.cpp)
     // unambiguous regardless of what characters appear in either part.
     std::string categoryTag = period + type; // e.g. "midtermexam", "finalactivity2"
 
@@ -985,7 +985,7 @@ GCResult gc_downloadSubmissions(HWND parent,
                 // The "__" delimiter separates the category tag (period +
                 // type, e.g. "midtermexam", "finalactivity2") from the
                 // student name portion. This is deliberately unambiguous —
-                // main.cpp splits on the LAST "__" to recover the category
+                // analysis_pipeline.cpp splits on the LAST "__" to recover the category
                 // tag and student name independently, regardless of what
                 // characters appear in either part.
                 //

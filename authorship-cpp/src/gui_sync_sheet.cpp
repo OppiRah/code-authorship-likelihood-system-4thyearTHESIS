@@ -104,7 +104,7 @@ static std::wstring periodFromTitle(const std::string& title);
 
 // Derives a period label purely for the tree's display text — the
 // real categorization (which drives scoring) still happens in
-// google_classroom.cpp / main.cpp exactly as before. This is
+// google_classroom.cpp / analysis_pipeline.cpp exactly as before. This is
 // presentation-only, matching the spec's row format:
 //   ☐ Midterm Exam            Midterm
 static std::wstring periodFromTitle(const std::string& title) {

@@ -20,7 +20,7 @@
 // ═════════════════════════════════════════════════════════════
 //
 // When a file can't be auto-categorized (unknown type, unknown
-// student, or both — see main.cpp's categorizeFile() priority
+// student, or both — see analysis_pipeline.cpp's categorizeFile() priority
 // hierarchy), it lands in the Unclassified bucket. This lets the
 // instructor manually fix it: pick a real student from the known
 // roster, pick a category and period, and the file gets renamed to

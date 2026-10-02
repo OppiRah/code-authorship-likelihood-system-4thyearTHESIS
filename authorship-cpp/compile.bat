@@ -3,6 +3,8 @@ g++ -std=c++17 ^
     -static-libgcc -static-libstdc++ ^
     -O2 ^
     src/main.cpp ^
+    src/analysis_pipeline.cpp ^
+    src/student_report.cpp ^
     src/tokenizer.cpp ^
     src/features.cpp ^
     src/knn_model.cpp ^
