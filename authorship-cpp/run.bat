@@ -2,7 +2,12 @@
 REM ─────────────────────────────────────────────────────────────
 REM  Code Authorship Likelihood Scoring System
 REM  Run Script — Windows
+REM
+REM  Launches the GUI. (The old "authorship.exe data" CLI mode was
+REM  removed; load submissions from inside the app instead.)
 REM ─────────────────────────────────────────────────────────────
+
+cd /d "%~dp0"
 
 if not exist authorship.exe (
     echo.
@@ -13,22 +18,4 @@ if not exist authorship.exe (
     exit /b 1
 )
 
-if not exist data (
-    echo.
-    echo ERROR: data folder not found.
-    echo Please ensure the 'data' folder exists with .c files inside.
-    echo.
-    pause
-    exit /b 1
-)
-
-echo.
-echo ============================================================
-echo   Running Code Authorship Likelihood Scoring System...
-echo ============================================================
-echo.
-
-authorship.exe data
-
-echo.
-pause
+start "" authorship.exe

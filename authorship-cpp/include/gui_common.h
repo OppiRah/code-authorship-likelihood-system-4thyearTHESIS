@@ -10,19 +10,21 @@
 //   2. app-wide #defines (timer IDs, control IDs, custom WM_*)
 //   3. the design-system palette and layout constants
 //   4. types named in any cross-file signature or extern global
-//   5. extern declarations for the 73 cross-screen globals
-//   6. prototypes for the 60 cross-screen functions
+//   5. extern declarations for the 79 cross-screen globals
+//   6. prototypes for the cross-screen functions
 //
 // Every gui_*.cpp includes this FIRST, before anything else, so
 // that all translation units see an identical preprocessor state
 // (UNICODE/_UNICODE/WINVER in particular — see the note below).
 //
 // Globals declared `extern` here are DEFINED exactly once each, but
-// NOT centralized in one file today — no gui_common.cpp exists yet.
-// Verified 2026-09-29 (previously 2026-08-25: 56 of 72): 57 of the 73
-// are still defined in gui.cpp; the other 16 are defined in whichever
-// split file owns that subsystem (8 in gui_help_carousel.cpp, 4 in
-// gui_sync_sheet.cpp, 3 in gui_overview.cpp, 1 in gui_welcome.cpp) —
+// NOT centralized in one file — there is no gui_common.cpp, by
+// decision (2026-08-24). Verified 2026-10-02 (previously 2026-09-29:
+// 57 of 73): 62 of the 79 are defined in gui.cpp; the other 17 are
+// defined in whichever file owns that subsystem (8 in
+// gui_help_carousel.cpp, 4 in gui_sync_sheet.cpp, 3 in
+// gui_overview.cpp, 1 in gui_welcome.cpp, and g_analysisResults in
+// main.cpp) —
 // none yet in gui_flagged.cpp or gui_students.cpp: their promoted
 // globals stayed defined in gui.cpp, since code there still needs them
 // too — g_sourceViewBtnRects (View Source feature) followed that same
