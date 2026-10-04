@@ -250,8 +250,64 @@ static std::wstring syncBlockHeaderLabel(const SyncBlockNode& block, int checked
            std::to_wstring(block.rows.size()) + L" selected";
 }
 
+// ── Tree hover ────────────────────────────────────────────────
+// The native tree (comctl32 v5, no manifest) has no hover feedback of
+// its own. A small subclass tracks the row under the mouse; WM_NOTIFY's
+// NM_CUSTOMDRAW then paints that row's label highlighted, and the
+// cursor becomes a hand over a checkbox.
+static HTREEITEM g_syncTreeHot = nullptr;
+static bool      g_syncTreeTracking = false;
+static WNDPROC   g_syncTreeOrigProc = nullptr;
+
+static void syncTreeInvalidateItem(HTREEITEM item) {
+    RECT r;
+    if (item && TreeView_GetItemRect(g_hSyncTree, item, &r, FALSE))
+        InvalidateRect(g_hSyncTree, &r, FALSE);
+}
+
+static void syncTreeSetHot(HTREEITEM item) {
+    if (item == g_syncTreeHot) return;
+    HTREEITEM old = g_syncTreeHot;
+    g_syncTreeHot = item;
+    syncTreeInvalidateItem(old);
+    syncTreeInvalidateItem(item);
+}
+
+static LRESULT CALLBACK SyncTreeSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_MOUSEMOVE: {
+            if (!g_syncTreeTracking) {
+                TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+                g_syncTreeTracking = TrackMouseEvent(&tme) != FALSE;
+            }
+            TVHITTESTINFO ht = {};
+            ht.pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+            HTREEITEM item = TreeView_HitTest(hwnd, &ht);
+            syncTreeSetHot((item && (ht.flags & TVHT_ONITEM)) ? item : nullptr);
+            break;
+        }
+        case WM_MOUSELEAVE:
+            g_syncTreeTracking = false;
+            syncTreeSetHot(nullptr);
+            break;
+        case WM_SETCURSOR:
+            if (LOWORD(lParam) == HTCLIENT) {
+                TVHITTESTINFO ht = {};
+                GetCursorPos(&ht.pt);
+                ScreenToClient(hwnd, &ht.pt);
+                if (TreeView_HitTest(hwnd, &ht) && (ht.flags & TVHT_ONITEMSTATEICON)) {
+                    SetCursor(LoadCursor(nullptr, IDC_HAND));
+                    return TRUE;
+                }
+            }
+            break;
+    }
+    return CallWindowProcW(g_syncTreeOrigProc, hwnd, msg, wParam, lParam);
+}
+
 static void populateSyncTree() {
     if (!g_hSyncTree) return;
+    g_syncTreeHot = nullptr; // items are about to be destroyed
     TreeView_DeleteAllItems(g_hSyncTree);
 
     for (auto& block : g_syncBlocks) {
@@ -494,6 +550,10 @@ static void openSyncSheet(HWND parent) {
     TreeView_SetBkColor(g_hSyncTree, GRAY_850);
     TreeView_SetTextColor(g_hSyncTree, GRAY_200);
     TreeView_SetLineColor(g_hSyncTree, GRAY_700);
+    g_syncTreeHot = nullptr;
+    g_syncTreeTracking = false;
+    g_syncTreeOrigProc = (WNDPROC)SetWindowLongPtrW(g_hSyncTree, GWLP_WNDPROC,
+                                                    (LONG_PTR)SyncTreeSubclassProc);
     ShowWindow(g_hSyncTree, SW_HIDE);
 
     g_hSyncLogList = CreateWindowW(L"LISTBOX", L"",
@@ -1046,6 +1106,21 @@ static LRESULT CALLBACK SyncSheetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             // posted handler is what gets to read the new state.
             NMHDR* nm = (NMHDR*)lParam;
             if (nm->hwndFrom == g_hSyncTree) {
+                // Hovered row: lighter label background, white text
+                // (the selected row keeps the control's own highlight).
+                if (nm->code == NM_CUSTOMDRAW) {
+                    NMTVCUSTOMDRAW* cd = (NMTVCUSTOMDRAW*)lParam;
+                    if (cd->nmcd.dwDrawStage == CDDS_PREPAINT)
+                        return CDRF_NOTIFYITEMDRAW;
+                    if (cd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT &&
+                        (HTREEITEM)cd->nmcd.dwItemSpec == g_syncTreeHot &&
+                        !(cd->nmcd.uItemState & CDIS_SELECTED)) {
+                        cd->clrText   = WHITE_;
+                        cd->clrTextBk = GRAY_700;
+                        return CDRF_NEWFONT;
+                    }
+                    return CDRF_DODEFAULT;
+                }
                 if (nm->code == NM_CLICK || nm->code == NM_DBLCLK) {
                     DWORD pos = GetMessagePos();
                     TVHITTESTINFO ht = {};
