@@ -293,6 +293,19 @@ what ships, where the app reads/writes, known issues, thesis-methodology
 notes and facts for the installer phase. Manual GUI smoke checklist:
 `authorship-cpp/tests/README.md`.
 
+## Post-release UI fixes (2026-10-04, branch `optimization-pass`)
+
+From thesismates' feedback on the first release, one commit each:
+sync sheet no longer `WS_EX_TOPMOST` (browser can cover it during
+sign-in; refocused on auth done); AI settings Save/Enter tests the key
+first (rejected → not saved, dialog stays open, text selected;
+unreachable → second Save keeps it unverified; `gemini_testKey` has an
+optional `rejected` out-param and WinHTTP timeouts); sync sheet hover
+highlight + hand cursor on every painted button (`syncHitTest`,
+per-state) and on tree rows (subclass + `NM_CUSTOMDRAW`); inline red
+message when Google sign-in doesn't complete. Not fixed: if fetching
+courses fails after sign-in, the Choose screen just shows an empty tree.
+
 ## Build
 
 ```
