@@ -86,6 +86,7 @@ void syncFocusMove(int delta) {
 
 static bool  g_syncExcludePrelim = true;
 static bool  g_syncConnecting    = false;
+static bool  g_syncAuthFailed    = false; // last sign-in attempt didn't complete
 static bool  g_syncMinimized     = false;
 
 // Syncing-state progress
@@ -516,6 +517,7 @@ static void openSyncSheet(HWND parent) {
     g_syncBlocks.clear();
     g_syncLogLines.clear();
     g_syncConnecting = false;
+    g_syncAuthFailed = false;
     g_syncMinimized  = false;
     g_syncExcludePrelim = true;
     g_syncFocusedIndex = -1; // fresh keyboard-focus state per open (item 2)
@@ -591,6 +593,7 @@ static void closeSyncSheet() {
 static void syncConnectStart(HWND hwnd) {
     if (g_syncConnecting) return;
     g_syncConnecting = true;
+    g_syncAuthFailed = false;
     InvalidateRect(hwnd, nullptr, FALSE);
     std::thread t(syncAuthThread, hwnd);
     t.detach();
@@ -670,6 +673,17 @@ static void drawSyncConnectState(HDC hdc, const RECT& rc) {
         L"2.  Grant CALSS permission to read your courses and rosters\n"
         L"3.  Return here \u2014 the sheet advances automatically",
         -1, &body, DT_LEFT | DT_WORDBREAK);
+
+    // Inline, not a popup: the sheet is already the thing to retry from.
+    if (g_syncAuthFailed && !g_syncConnecting) {
+        SetTextColor(hdc, RISK_HIGH);
+        RECT errR = {S(20), S(136), rc.right - S(20), rc.bottom - S(72)};
+        DrawTextW(hdc,
+            L"\u2717  Sign-in didn't complete \u2014 the browser tab was closed, "
+            L"access wasn't allowed, it took longer than 3 minutes, or there's "
+            L"no internet connection. Click Connect to try again.",
+            -1, &errR, DT_LEFT | DT_WORDBREAK);
+    }
 
     RECT btn = {S(20), rc.bottom - S(60), S(260), rc.bottom - S(20)};
     g_syncPrimaryBtnRect = btn;
@@ -1058,6 +1072,7 @@ static LRESULT CALLBACK SyncSheetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             // Sign-in happened in the browser — bring the sheet back.
             SetForegroundWindow(hwnd);
             if (wParam == 0) {
+                g_syncAuthFailed = true;
                 InvalidateRect(hwnd, nullptr, FALSE);
                 return 0;
             }
