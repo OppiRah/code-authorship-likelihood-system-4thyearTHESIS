@@ -161,6 +161,10 @@ bool gemini_testKey(const std::string& apiKey, std::string& error, bool* rejecte
     HINTERNET hSession = WinHttpOpen(L"AuthorshipScorer/1.0",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) { error = "Could not open an HTTP session."; return false; }
+    // Short timeouts (ms): this runs on the UI thread from the AI
+    // settings dialog, and WinHTTP's defaults include an unlimited DNS
+    // wait — a bad connection would freeze the dialog.
+    WinHttpSetTimeouts(hSession, 10000, 10000, 10000, 15000);
     HINTERNET hConnect = WinHttpConnect(hSession, L"generativelanguage.googleapis.com",
                                         INTERNET_DEFAULT_HTTPS_PORT, 0);
     HINTERNET hRequest = hConnect ? WinHttpOpenRequest(hConnect, L"GET",
