@@ -154,8 +154,9 @@ bool gemini_removeKey() { return secretDelete(SECRET_GEMINI_KEY); }
 // "Test key" (AI settings dialog): one GET of the model's own metadata.
 // It authenticates exactly like a real request but generates nothing,
 // so it costs no generation quota. 200 = the key works.
-bool gemini_testKey(const std::string& apiKey, std::string& error) {
+bool gemini_testKey(const std::string& apiKey, std::string& error, bool* rejected) {
     error.clear();
+    if (rejected) *rejected = false;
     if (apiKey.empty()) { error = "No key entered."; return false; }
     HINTERNET hSession = WinHttpOpen(L"AuthorshipScorer/1.0",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
@@ -175,9 +176,11 @@ bool gemini_testKey(const std::string& apiKey, std::string& error) {
             WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                                 nullptr, &status, &sz, nullptr);
             if (status == 200) ok = true;
-            else if (status == 400 || status == 401 || status == 403)
+            else if (status == 400 || status == 401 || status == 403) {
+                if (rejected) *rejected = true;
                 error = "Google rejected this key (HTTP " + std::to_string(status) +
                         "). Check that it was copied completely.";
+            }
             else
                 error = "Unexpected reply from Google (HTTP " + std::to_string(status) + ").";
         } else {

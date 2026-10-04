@@ -17,11 +17,14 @@
 std::string loadApiKey();
 
 // AI settings dialog support: is a key stored / store one / remove it /
-// test one with a single no-quota request (error filled on failure).
+// test one with a single no-quota request (error filled on failure;
+// *rejected set when Google answered and refused the key, as opposed
+// to Google being unreachable).
 bool gemini_hasKey();
 bool gemini_saveKey(const std::string& key);
 bool gemini_removeKey();
-bool gemini_testKey(const std::string& apiKey, std::string& error);
+bool gemini_testKey(const std::string& apiKey, std::string& error,
+                    bool* rejected = nullptr);
 
 // At most this many flagged pairs (the highest-scoring ones) are sent
 // to Gemini per run. A single section can flag hundreds of pairs, and

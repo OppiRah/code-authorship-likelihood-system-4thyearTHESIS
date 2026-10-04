@@ -37,6 +37,9 @@ static bool     g_aiChanged = false;
 static bool     g_aiClassRegistered = false;
 static COLORREF g_aiStatusColor = RGB(60, 60, 60);
 static HFONT    g_aiLinkFont = nullptr;
+// Key the user was told "couldn't check — Save again to keep it anyway"
+// about. A second Save with the same text saves it unverified.
+static std::string g_aiUnverifiedKey;
 
 static const wchar_t* AI_KEY_URL = L"https://aistudio.google.com/apikey";
 
@@ -59,7 +62,17 @@ static void aiSetStatus(const std::wstring& text, COLORREF color) {
     UpdateWindow(g_aiStatus);
 }
 
+// After a rejected key: put focus back in the box with the text
+// selected, so the user can retype or paste over it straight away.
+static void aiReselectKey() {
+    SetFocus(g_aiEdit);
+    SendMessageW(g_aiEdit, EM_SETSEL, 0, -1);
+}
+
 static void aiCloseDialog(HWND hwnd) {
+    if (!g_aiUnverifiedKey.empty())
+        SecureZeroMemory(&g_aiUnverifiedKey[0], g_aiUnverifiedKey.size());
+    g_aiUnverifiedKey.clear();
     g_aiDlgOpen = false;
     DestroyWindow(hwnd);
 }
@@ -103,21 +116,50 @@ static LRESULT CALLBACK AiSettingsProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
                 aiSetStatus(L"Testing the key with Google…", RGB(60, 60, 60));
                 HCURSOR old = SetCursor(LoadCursor(nullptr, IDC_WAIT));
                 std::string err;
-                bool ok = gemini_testKey(key, err);
+                bool rejected = false;
+                bool ok = gemini_testKey(key, err, &rejected);
                 SetCursor(old);
                 if (ok)
                     aiSetStatus(usingSaved ? L"✓ Your saved key works."
                                            : L"✓ This key works. Click Save to keep it.",
                                 RGB(20, 120, 50));
-                else
+                else {
                     aiSetStatus(L"✗ " + s2w(err), RGB(160, 30, 30));
+                    if (rejected && !usingSaved) aiReselectKey();
+                }
                 return 0;
             }
-            if (id == ID_AI_SAVE) {
+            // IDOK: Enter in the key box. This window isn't a real dialog
+            // class, so IsDialogMessage sends IDOK rather than Save's ID.
+            if (id == ID_AI_SAVE || id == IDOK) {
                 std::string key = aiEditText();
                 if (key.empty()) {
                     aiSetStatus(L"Paste a key into the box first.", RGB(160, 30, 30));
                     return 0;
+                }
+                // Check the key before saving it. A key Google rejects is
+                // never saved — the dialog stays open so it can be fixed.
+                // If Google can't be reached, a second Save keeps it anyway.
+                if (key != g_aiUnverifiedKey) {
+                    aiSetStatus(L"Checking the key with Google…", RGB(60, 60, 60));
+                    HCURSOR old = SetCursor(LoadCursor(nullptr, IDC_WAIT));
+                    std::string err;
+                    bool rejected = false;
+                    bool ok = gemini_testKey(key, err, &rejected);
+                    SetCursor(old);
+                    if (!ok && rejected) {
+                        aiSetStatus(L"✗ " + s2w(err) + L" The key was not saved.",
+                                    RGB(160, 30, 30));
+                        aiReselectKey();
+                        return 0;
+                    }
+                    if (!ok) {
+                        g_aiUnverifiedKey = key;
+                        aiSetStatus(L"Couldn't check this key: " + s2w(err) +
+                                    L" Click Save again to save it anyway.",
+                                    RGB(150, 90, 0));
+                        return 0;
+                    }
                 }
                 if (!gemini_saveKey(key)) {
                     // No file fallback — the key is simply not saved.
@@ -167,7 +209,7 @@ static bool showAiSettingsDialog(HWND parent) {
         g_aiClassRegistered = true;
     }
 
-    const int DW = S(500), DH = S(390);
+    const int DW = S(500), DH = S(420);
     RECT pr; GetWindowRect(parent ? parent : GetDesktopWindow(), &pr);
     int dx = pr.left + ((pr.right - pr.left) - DW) / 2;
     int dy = pr.top + ((pr.bottom - pr.top) - DH) / 2;
@@ -217,7 +259,7 @@ static bool showAiSettingsDialog(HWND parent) {
     SendMessageW(g_aiEdit, EM_SETPASSWORDCHAR, (WPARAM)0x25CF, 0);
     mk(L"BUTTON", L"Show key", WS_TABSTOP | BS_AUTOCHECKBOX, pad, S(226), S(140), S(22), ID_AI_SHOW);
 
-    g_aiStatus = mk(L"STATIC", L"", 0, pad, S(254), w, S(44), 0);
+    g_aiStatus = mk(L"STATIC", L"", 0, pad, S(254), w, S(66), 0);
 
     int by = DH - S(96), bh = S(32);
     mk(L"BUTTON", L"Test key", WS_TABSTOP, pad, by, S(100), bh, ID_AI_TEST);
