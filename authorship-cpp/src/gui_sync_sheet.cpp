@@ -420,7 +420,9 @@ static void openSyncSheet(HWND parent) {
     g_syncExcludePrelim = true;
     g_syncFocusedIndex = -1; // fresh keyboard-focus state per open (item 2)
 
-    g_hSyncSheet = CreateWindowExW(WS_EX_TOPMOST | WS_EX_DLGMODALFRAME,
+    // Not WS_EX_TOPMOST: owned by the main window, so it still stays
+    // above CALSS, but the browser can come in front during sign-in.
+    g_hSyncSheet = CreateWindowExW(WS_EX_DLGMODALFRAME,
         L"CALSSSyncSheet", L"Sync Google Classroom",
         WS_POPUP | WS_CAPTION | WS_SYSMENU,
         0, 0, S(SHEET_W_DESIGN), S(320), parent, nullptr, hInst, nullptr);
@@ -933,6 +935,8 @@ static LRESULT CALLBACK SyncSheetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
         case WM_SYNC_AUTHDONE: {
             g_syncConnecting = false;
+            // Sign-in happened in the browser — bring the sheet back.
+            SetForegroundWindow(hwnd);
             if (wParam == 0) {
                 InvalidateRect(hwnd, nullptr, FALSE);
                 return 0;
