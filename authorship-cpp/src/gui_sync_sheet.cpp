@@ -350,7 +350,50 @@ static RECT g_syncPrimaryBtnRect = {};
 static RECT g_syncSecondaryBtnRect = {};
 static RECT g_syncSelectAllRect = {}, g_syncSelectNoneRect = {}, g_syncExcludeChipRect = {};
 static RECT g_syncMinimizeRect = {};
-static bool g_syncHoverPrimary = false;
+// Which painted button the mouse is over. Hit-tested per state
+// (syncHitTest), since rects from other states keep stale values.
+enum SyncHover {
+    SYNC_HOV_NONE, SYNC_HOV_PRIMARY, SYNC_HOV_SECONDARY, SYNC_HOV_SELECT_ALL,
+    SYNC_HOV_SELECT_NONE, SYNC_HOV_EXCLUDE, SYNC_HOV_MINIMIZE
+};
+static SyncHover g_syncHover = SYNC_HOV_NONE;
+static bool      g_syncTrackingMouse = false;
+
+static SyncHover syncHitTest(POINT pt) {
+    switch (g_syncState) {
+        case SHEET_CONNECT:
+            if (!g_syncConnecting && PtInRect(&g_syncPrimaryBtnRect, pt)) return SYNC_HOV_PRIMARY;
+            if (PtInRect(&g_syncSecondaryBtnRect, pt)) return SYNC_HOV_SECONDARY;
+            break;
+        case SHEET_CHOOSE:
+            if (PtInRect(&g_syncSelectAllRect, pt))    return SYNC_HOV_SELECT_ALL;
+            if (PtInRect(&g_syncSelectNoneRect, pt))   return SYNC_HOV_SELECT_NONE;
+            if (PtInRect(&g_syncExcludeChipRect, pt))  return SYNC_HOV_EXCLUDE;
+            if (PtInRect(&g_syncSecondaryBtnRect, pt)) return SYNC_HOV_SECONDARY;
+            if (PtInRect(&g_syncPrimaryBtnRect, pt) &&
+                syncFooterLabel() != L"Select at least one assignment") return SYNC_HOV_PRIMARY;
+            break;
+        case SHEET_SYNCING:
+            if (PtInRect(&g_syncMinimizeRect, pt)) return SYNC_HOV_MINIMIZE;
+            break;
+        case SHEET_DONE:
+            if (PtInRect(&g_syncPrimaryBtnRect, pt))   return SYNC_HOV_PRIMARY;
+            if (PtInRect(&g_syncSecondaryBtnRect, pt)) return SYNC_HOV_SECONDARY;
+            break;
+        default: break;
+    }
+    return SYNC_HOV_NONE;
+}
+
+// Gray secondary/ghost button (Cancel, Close, Select all/none, Run in
+// background): lighter fill, brighter border and white text on hover.
+static void drawSyncGhostBtn(HDC hdc, const RECT& r, const wchar_t* label,
+                             bool hov, int radius) {
+    drawCard(hdc, r, hov ? GRAY_700 : GRAY_800, hov ? GRAY_500 : GRAY_700, radius);
+    SetTextColor(hdc, hov ? WHITE_ : GRAY_200);
+    RECT t = r;
+    DrawTextW(hdc, label, -1, &t, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
 
 static LRESULT CALLBACK SyncSheetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -404,6 +447,7 @@ static void syncSheetLayout() {
 
 static void syncSheetSetState(SyncSheetState s) {
     g_syncState = s;
+    g_syncHover = SYNC_HOV_NONE;
     syncSheetLayout();
 }
 
@@ -573,7 +617,7 @@ static void drawSyncConnectState(HDC hdc, const RECT& rc) {
     if (!disabled) {
         addFocusable(g_syncSheetFocusables, FocusKind::SyncPrimaryBtn, btn, 0, false);
     }
-    COLORREF bgc = disabled ? GRAY_800 : (g_syncHoverPrimary ? MAROON_600 : MAROON_700);
+    COLORREF bgc = disabled ? GRAY_800 : (g_syncHover == SYNC_HOV_PRIMARY ? MAROON_600 : MAROON_700);
     HBRUSH pb = CreateSolidBrush(bgc);
     HPEN pp = CreatePen(PS_SOLID, 1, bgc);
     HBRUSH ob = (HBRUSH)SelectObject(hdc, pb);
@@ -595,9 +639,7 @@ static void drawSyncConnectState(HDC hdc, const RECT& rc) {
     RECT cancelR = {S(280), rc.bottom - S(60), S(420), rc.bottom - S(20)};
     g_syncSecondaryBtnRect = cancelR;
     addFocusable(g_syncSheetFocusables, FocusKind::SyncSecondaryBtn, cancelR, 0, false);
-    drawCard(hdc, cancelR, GRAY_800, GRAY_700, 8);
-    SetTextColor(hdc, GRAY_200);
-    DrawTextW(hdc, L"Cancel", -1, &cancelR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    drawSyncGhostBtn(hdc, cancelR, L"Cancel", g_syncHover == SYNC_HOV_SECONDARY, 8);
 }
 
 // ── STATE B: Choose (tree is a real child control) ─
@@ -611,25 +653,25 @@ static void drawSyncChooseState(HDC hdc, const RECT& rc, HWND hwnd) {
     RECT saR = {S(20), S(54), S(20) + saSz.cx + S(28), S(78)};
     g_syncSelectAllRect = saR;
     addFocusable(g_syncSheetFocusables, FocusKind::SyncSelectAll, saR, 0, false);
-    drawCard(hdc, saR, GRAY_800, GRAY_700, 12);
-    SetTextColor(hdc, GRAY_200);
-    DrawTextW(hdc, L"Select all", -1, &saR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    drawSyncGhostBtn(hdc, saR, L"Select all", g_syncHover == SYNC_HOV_SELECT_ALL, 12);
 
     SIZE snSz; GetTextExtentPoint32W(hdc, L"Select none", 11, &snSz);
     RECT snR = {saR.right + S(8), S(54), saR.right + S(8) + snSz.cx + S(28), S(78)};
     g_syncSelectNoneRect = snR;
     addFocusable(g_syncSheetFocusables, FocusKind::SyncSelectNone, snR, 0, false);
-    drawCard(hdc, snR, GRAY_800, GRAY_700, 12);
-    SetTextColor(hdc, GRAY_200);
-    DrawTextW(hdc, L"Select none", -1, &snR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    drawSyncGhostBtn(hdc, snR, L"Select none", g_syncHover == SYNC_HOV_SELECT_NONE, 12);
 
     // Exclude-prelims toggle chip
     RECT chip = {rc.right - S(200), S(54), rc.right - S(20), S(78)};
     g_syncExcludeChipRect = chip;
     addFocusable(g_syncSheetFocusables, FocusKind::SyncExcludePrelim, chip, 0, false);
-    COLORREF chipBg = g_syncExcludePrelim ? MAROON_700 : GRAY_800;
-    drawCard(hdc, chip, chipBg, g_syncExcludePrelim ? GOLD_500 : GRAY_700, 12);
-    SetTextColor(hdc, g_syncExcludePrelim ? WHITE_ : GRAY_400);
+    bool chipHov = (g_syncHover == SYNC_HOV_EXCLUDE);
+    COLORREF chipBg = g_syncExcludePrelim ? (chipHov ? MAROON_600 : MAROON_700)
+                                          : (chipHov ? GRAY_700 : GRAY_800);
+    COLORREF chipBorder = g_syncExcludePrelim ? (chipHov ? GOLD_400 : GOLD_500)
+                                              : (chipHov ? GRAY_500 : GRAY_700);
+    drawCard(hdc, chip, chipBg, chipBorder, 12);
+    SetTextColor(hdc, (g_syncExcludePrelim || chipHov) ? WHITE_ : GRAY_400);
     DrawTextW(hdc, L"Exclude prelims", -1, &chip, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
     // The tree itself — a real native SysTreeView32 control,
@@ -674,7 +716,7 @@ static void drawSyncChooseState(HDC hdc, const RECT& rc, HWND hwnd) {
     if (enabled) {
         addFocusable(g_syncSheetFocusables, FocusKind::SyncPrimaryBtn, btn, 0, false);
     }
-    COLORREF bgc = !enabled ? GRAY_800 : (g_syncHoverPrimary ? MAROON_600 : MAROON_700);
+    COLORREF bgc = !enabled ? GRAY_800 : (g_syncHover == SYNC_HOV_PRIMARY ? MAROON_600 : MAROON_700);
     HBRUSH pb = CreateSolidBrush(bgc);
     HPEN pp = CreatePen(PS_SOLID, 1, bgc);
     HBRUSH ob = (HBRUSH)SelectObject(hdc, pb);
@@ -688,9 +730,7 @@ static void drawSyncChooseState(HDC hdc, const RECT& rc, HWND hwnd) {
     RECT cancelR = {rc.right - S(120), rc.bottom - S(60), rc.right - S(20), rc.bottom - S(20)};
     g_syncSecondaryBtnRect = cancelR;
     addFocusable(g_syncSheetFocusables, FocusKind::SyncSecondaryBtn, cancelR, 0, false);
-    drawCard(hdc, cancelR, GRAY_800, GRAY_700, 8);
-    SetTextColor(hdc, GRAY_200);
-    DrawTextW(hdc, L"Cancel", -1, &cancelR, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    drawSyncGhostBtn(hdc, cancelR, L"Cancel", g_syncHover == SYNC_HOV_SECONDARY, 8);
 }
 
 // ── STATE C: Syncing (log list is a real child control) ─
@@ -728,10 +768,8 @@ static void drawSyncSyncingState(HDC hdc, const RECT& rc) {
     RECT bgBtn = {S(20), rc.bottom - S(44), S(200), rc.bottom - S(16)};
     g_syncMinimizeRect = bgBtn;
     addFocusable(g_syncSheetFocusables, FocusKind::SyncMinimize, bgBtn, 0, false);
-    SetTextColor(hdc, GRAY_400);
     SelectObject(hdc, g_hFontBodyNew);
-    DrawTextW(hdc, L"Run in background", -1, &bgBtn,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    drawSyncGhostBtn(hdc, bgBtn, L"Run in background", g_syncHover == SYNC_HOV_MINIMIZE, 8);
 }
 
 // ── STATE D: Done ──────────────────────────────────
@@ -767,7 +805,7 @@ static void drawSyncDoneState(HDC hdc, const RECT& rc) {
     RECT runBtn = {S(20), rc.bottom - S(60), S(220), rc.bottom - S(20)};
     g_syncPrimaryBtnRect = runBtn;
     addFocusable(g_syncSheetFocusables, FocusKind::SyncPrimaryBtn, runBtn, 0, false);
-    COLORREF bgc = g_syncHoverPrimary ? MAROON_600 : MAROON_700;
+    COLORREF bgc = g_syncHover == SYNC_HOV_PRIMARY ? MAROON_600 : MAROON_700;
     HBRUSH pb = CreateSolidBrush(bgc);
     HPEN pp = CreatePen(PS_SOLID, 1, bgc);
     HBRUSH ob = (HBRUSH)SelectObject(hdc, pb);
@@ -781,10 +819,8 @@ static void drawSyncDoneState(HDC hdc, const RECT& rc) {
     RECT closeBtn = {S(240), rc.bottom - S(60), S(340), rc.bottom - S(20)};
     g_syncSecondaryBtnRect = closeBtn;
     addFocusable(g_syncSheetFocusables, FocusKind::SyncSecondaryBtn, closeBtn, 0, false);
-    drawCard(hdc, closeBtn, GRAY_800, GRAY_700, 8);
-    SetTextColor(hdc, GRAY_200);
     SelectObject(hdc, g_hFontBodyNew);
-    DrawTextW(hdc, L"Close", -1, &closeBtn, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    drawSyncGhostBtn(hdc, closeBtn, L"Close", g_syncHover == SYNC_HOV_SECONDARY, 8);
 }
 
 // ── WM_LBUTTONDOWN state branches. Shares g_syncState-scoped
@@ -906,14 +942,38 @@ static LRESULT CALLBACK SyncSheetProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         case WM_ERASEBKGND: return 1;
 
         case WM_MOUSEMOVE: {
+            if (!g_syncTrackingMouse) {
+                TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+                g_syncTrackingMouse = TrackMouseEvent(&tme) != FALSE;
+            }
             POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-            bool hov = PtInRect(&g_syncPrimaryBtnRect, pt);
-            if (hov != g_syncHoverPrimary) {
-                g_syncHoverPrimary = hov;
+            SyncHover hov = syncHitTest(pt);
+            if (hov != g_syncHover) {
+                g_syncHover = hov;
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
         }
+
+        // Also fires when the mouse moves onto the tree/log child
+        // controls, which is what clears a highlight next to them.
+        case WM_MOUSELEAVE:
+            g_syncTrackingMouse = false;
+            if (g_syncHover != SYNC_HOV_NONE) {
+                g_syncHover = SYNC_HOV_NONE;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+
+        case WM_SETCURSOR:
+            if ((HWND)wParam == hwnd && LOWORD(lParam) == HTCLIENT) {
+                POINT pt; GetCursorPos(&pt); ScreenToClient(hwnd, &pt);
+                if (syncHitTest(pt) != SYNC_HOV_NONE) {
+                    SetCursor(LoadCursor(nullptr, IDC_HAND));
+                    return TRUE;
+                }
+            }
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
 
         case WM_LBUTTONDOWN: {
             POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
