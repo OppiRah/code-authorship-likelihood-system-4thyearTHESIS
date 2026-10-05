@@ -109,3 +109,51 @@ reproduced the Phase 0 golden outputs byte for byte (see
   keep).
 - See known issue 5 if the installer creates `%PROGRAMDATA%\CALSS`.
 - `ulccslogo.ico` is available for the shortcut and an exe icon resource.
+
+## 6. Portable thesis-test package (2026-10-05)
+
+First portable package for the two thesis mates (Google Drive → their
+own PCs). Not an installer. Branch `optimization-pass`; source state
+`a170da6` (no `src/`/`include/` change since); packaging commits
+`e535c51`, `c019eda`.
+
+**What changed (packaging only, no source change):**
+`make_release.bat` now also copies `release_docs\README.txt` and
+`TESTER_CHECKLIST.txt`, generates `BUILD_INFO.txt` (release name,
+branch, commit, exe SHA-256), checks the folder holds exactly the 16
+expected files, and writes two ZIPs: the app package and a separate
+`CALSS_SampleData_SYNTHETIC.zip` (`stress_test_bscs7/Programming1` +
+`Programming2`, with expected counts). `--nozip` skips the ZIPs. The
+script is ASCII now (cmd split the old UTF-8 box-drawing REM lines into
+junk commands). Release docs are CRLF + UTF-8 BOM via `.gitattributes`.
+
+**Evidence (dev PC, Windows 11 26200):**
+
+| Check | Result |
+|---|---|
+| Build | `compile.bat`'s exact g++ command, clean (old exe moved aside first): exit 0, no warnings, ~90 s. g++ 16.1.0 (MinGW-Builds, posix-seh). |
+| Golden regression | All three datasets **byte-identical** (`bscs7_programming1`, `bscs7_programming2`, `stress_test_all_blocks`), harness built from the same source as the exe. |
+| EXE | 4,125,363 bytes; SHA-256 `0A27C4EB013B73791AEEFD848E881388091B178396A1E834040B426EE5D9BB63`; PE32+; Subsystem 2 (Windows GUI). |
+| Imports | ADVAPI32, COMCTL32, comdlg32, GDI32, gdiplus, KERNEL32, MSIMG32, ole32, SHELL32, USER32, WINHTTP, WS2_32 + `api-ms-win-crt-*` (UCRT). No `libwinpthread`, `libstdc++`, `libgcc`. |
+| Package contents | 16 files: `authorship.exe`, `BUILD_INFO.txt`, `README.txt`, `TESTER_CHECKLIST.txt`, `calss_gc_embedded_credentials.json`, `ulccslogo.png`, `ulcclogoloadingscreen.png`, `assets\help\calss_help_01…09.png`. |
+| Secrets scan | No Gemini key (`AIza…`), access token (`ya29.…`) or refresh token in the folder or exe; no developer user name / repo path in any file. The only `access_token` hits are the exe's empty JSON template. The OAuth **client** file ships by design (§1). |
+| Packaged launch | ZIP extracted to `%TEMP%\CALSS pkgtest Peña 1\Downloaded\CALSS` (space + non-ASCII), started with `PATH=C:\Windows\System32;C:\Windows` and working directory set to an unrelated empty folder: main window opens; no child console process; every loaded module except the exe is under `C:\Windows`; sidebar seal PNG and Help carousel slide 1 picture render (screen captures); closes cleanly on WM_CLOSE; nothing written to the package folder or the working directory. |
+| Not run here | GUI analysis from the packaged exe (pipeline covered by the golden check; GUI items in `tests/README.md` were run manually by the developer before packaging), a fresh Windows user / fresh Credential Manager (this launch used the developer's account, which already has a Gemini key), Gemini, Classroom sign-in. |
+
+**Still open, requires the thesis mates' PCs (not passed until they
+report):** start on a PC without MinGW, SmartScreen/Defender behaviour
+for an unsigned exe downloaded from Drive, first-run with an empty
+Credential Manager, GUI analysis + CSV + report end to end, Peña path in
+the GUI, Classroom sign-in with an approved test-user account. Checklist:
+`release_docs/TESTER_CHECKLIST.txt` (ships in the package).
+
+**Noted, not changed (not packaging blockers):**
+- Help > About still reads "Version 0.4.0 (Proposal Prototype)"
+  (`gui.cpp`); README tells testers it's known.
+- Help images 03/04 and 06/09 are byte-identical pairs (same screenshot
+  used twice); the two logo PNGs are identical too.
+- The ZIPs come from Windows PowerShell 5.1 `Compress-Archive`, which
+  stores `\` path separators: fine for Windows Explorer / 7-Zip, may
+  look flat in non-Windows unzip tools.
+- Known issues 1–9 in §3 are unchanged; the OAuth app stays External /
+  Testing (only listed test users can sign in; ~7-day token expiry).
