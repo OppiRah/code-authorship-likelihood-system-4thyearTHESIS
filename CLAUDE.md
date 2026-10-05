@@ -344,3 +344,19 @@ loading-screen-only seal (new, added this session). Both load via a
 load-once/fallback-to-drawn-circle helper (`getULLogo()` /
 `getULLoadingLogo()` respectively) and must ship next to the `.exe`
 (loaded from the exe's folder, not the working directory).
+
+## Portable thesis-test package (2026-10-05)
+
+`make_release.bat` now builds `release\CALSS\` (16 files: exe, logos,
+help PNGs, OAuth client file, `README.txt`, `TESTER_CHECKLIST.txt`,
+generated `BUILD_INFO.txt`), checks the file list, and zips it to
+`release\CALSS_thesis-test_<date>_<commit>.zip` plus a separate
+`CALSS_SampleData_SYNTHETIC.zip`. User docs live in
+`authorship-cpp/release_docs/`. Evidence and what is still untested:
+`docs/RELEASE_READINESS.md` §6. Cross-PC testing by the thesis mates is
+PENDING — not installer-ready until it passes.
+
+Claude Code note: in this environment `cmd /c compile.bat` fails with
+"not recognized"; run batch files by full quoted path
+(`cmd /c "\"<full path>\make_release.bat\""`) or run `compile.bat`'s
+g++ line directly.
