@@ -71,7 +71,7 @@ set RELNAME=CALSS_thesis-test_%STAMP%_%COMMIT%%DIRTY%
 
 powershell -NoProfile -Command ^
   "$h=(Get-FileHash -Algorithm SHA256 '%OUT%\authorship.exe').Hash;" ^
-  "$l=@('CALSS thesis test build','','Release:  %RELNAME%','Built:    '+(Get-Item '%OUT%\authorship.exe').LastWriteTime.ToString('yyyy-MM-dd HH:mm'),'Branch:   '+(git rev-parse --abbrev-ref HEAD 2>$null),'Commit:   '+(git rev-parse HEAD 2>$null)+'%DIRTY%','EXE SHA-256: '+$h,'','Portable package for cross-PC testing. Not an installer.');" ^
+  "$l=@('CALSS thesis test build','','Release:  %RELNAME%',('Built:    '+(Get-Item '%OUT%\authorship.exe').LastWriteTime.ToString('yyyy-MM-dd HH:mm')),('Branch:   '+(git rev-parse --abbrev-ref HEAD 2>$null)),('Commit:   '+(git rev-parse HEAD 2>$null)+'%DIRTY%'),('EXE SHA-256: '+$h),'','Portable package for cross-PC testing. Not an installer.');" ^
   "Set-Content -Encoding ascii '%OUT%\BUILD_INFO.txt' $l"
 
 REM Contents check: exactly the expected files, nothing else.
