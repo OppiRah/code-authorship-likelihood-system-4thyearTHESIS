@@ -1,0 +1,112 @@
+﻿CALSS thesis test build - TESTER CHECKLIST
+=====================================================================
+Test on YOUR OWN PC, independently, using only the downloaded ZIP.
+Mark each item PASS / FAIL / SKIPPED and send the list back with any
+screenshots. Write down the build from BUILD_INFO.txt.
+
+Your PC:  Windows 10 / 11 (version: ______)   Antivirus: ______________
+Do you have MinGW / Visual Studio / the CALSS repo on this PC?  yes / no
+Is your Google account an approved CALSS OAuth test user?  yes / no / ?
+
+Test data: use CALSS_SampleData_SYNTHETIC.zip (synthetic submissions,
+not real students) if you received it, or any folder of .c files.
+
+HOW TO CLASSIFY A FAILURE (write the letter next to it)
+  P  Packaging bug      - missing file/picture, "DLL not found", app won't
+                          start, a file of the developer's is included,
+                          it only works from a certain folder.
+                          -> report immediately; this blocks the installer.
+  K  Known limitation   - listed in README.txt "Known limitations".
+                          -> note it, no need to report in detail.
+  G  Google OAuth test  - Google says access blocked / app not verified /
+     restriction          not a test user; or sign-in expires after ~7 days.
+                          -> expected unless your account IS a test user.
+  E  Environment        - only on your network/PC: proxy, firewall, port
+                          8080 in use, antivirus quarantine, school Wi-Fi.
+                          -> report with details of the network/PC.
+  B  App bug            - anything else wrong in CALSS itself.
+
+
+A. DOWNLOAD, EXTRACT, LAUNCH
+ 1. Download the ZIP from Google Drive. Note any browser/Drive warning.
+ 2. Right-click > Extract All to e.g. Documents\CALSS. Check the folder
+    has: authorship.exe, README.txt, TESTER_CHECKLIST.txt,
+    BUILD_INFO.txt, calss_gc_embedded_credentials.json, ulccslogo.png,
+    ulcclogoloadingscreen.png, assets\help\ (9 pictures). Nothing else.
+ 3. Double-click authorship.exe. Note any SmartScreen ("Windows protected
+    your PC") or antivirus warning, and what you clicked.
+ 4. Splash screen shows the UL seal (not just a plain circle); the main
+    window opens.
+ 5. NO black console window appears next to CALSS (check the taskbar).
+ 6. Sidebar shows the UL seal.
+ 7. Help > Documentation: all 9 slides show pictures; Next/Prev/Skip.
+ 8. Help > About opens. (It says "0.4.0 (Proposal Prototype)" - known.)
+ 9. Resize/maximize the window and drag the sidebar edge: no leftover
+    garbage drawing.
+
+B. LOCAL ANALYSIS (AI off)
+10. Select folder: load the sample Programming1 folder (or your own).
+    Sidebar file count is not zero.
+11. Untick "Include AI summary", Run analysis. Progress moves through the
+    phases and finishes. Sample Programming1 should give 2,186 pairs /
+    705 flagged - write down what you get.
+12. Start another run and press Cancel: it stops cleanly.
+13. Overview: headline, stat row, risk bar look right.
+14. Classes: roster rows, sort dropdown, block sub-tabs. Open a student:
+    Style DNA strip, submissions, flagged appearances; click a flagged
+    appearance (jumps to the pair); Back.
+15. Flagged pairs: scroll, Filter dropdown, search box, expand a pair,
+    Copy findings (paste into Notepad to check).
+16. View source on a flagged pair: both files show; compare highlights;
+    A/B tabs, Prev/Next, mouse wheel, PgUp/PgDn/Home/End; close.
+17. View > View Student Profiles shows a hint to use the Classes tab.
+18. File > Import .c Files...: pick 1-2 .c files; a confirmation shows.
+
+C. OUTPUTS
+19. Export CSV: save to Desktop; open it; names look like the app's.
+20. Generate Similarity Report on a student: opens in the browser and
+    the file is in Documents\CALSS Reports\.
+21. View > View Audit Log opens Notepad with entries for your runs.
+22. Check that NO new files appeared in the CALSS program folder.
+
+D. PATHS
+23. Copy the sample Programming1 folder to a folder named  Peña  (with
+    the n-tilde) and load + analyze it: same numbers as item 11.
+24. Move the whole CALSS folder somewhere else (e.g. Desktop\Test CALSS)
+    and launch it again: logos and help pictures still show.
+25. Make a desktop shortcut to authorship.exe and launch from it.
+
+E. RESTART / PERSISTENCE
+26. Close CALSS (File > Exit) and reopen: no crash, no first-run notice,
+    and anything you set up in F/G is still remembered.
+
+F. GEMINI AI  (only if you have your own Gemini API key; else SKIPPED)
+27. With no key: "Include AI summary" is unticked/disabled and "Set up
+    AI..." links appear.
+28. File > AI Settings: paste key, Test key succeeds, Save.
+    A wrong key is rejected and not saved.
+29. Run with AI on: Overview AI summary appears; "Pair N" links jump to
+    the pair; expanded pairs have AI notes (only the top 50 pairs).
+
+G. GOOGLE CLASSROOM  (only if your account is an approved test user;
+   otherwise do just item 30 and mark the rest SKIPPED)
+30. File > Sync with Google Classroom: the browser opens Google sign-in.
+    With a NON-test account, expect a Google "access blocked / not
+    verified" page -> mark G, not a bug.
+31. Test-user account: sign in; browser says "Authentication
+    Successful"; CALSS shows your courses; sync one course; files land
+    in Documents\CALSS_Classroom_Sync (or the folder you chose); load
+    and analyze them.
+32. Start sign-in, then close the browser tab without signing in: CALSS
+    shows a "sign-in didn't complete / timed out" message within ~3 min.
+33. Reopen CALSS: sync works again without signing in (until Google's
+    ~7-day test-mode expiry).
+
+H. ANYTHING ELSE
+34. Any crash, freeze, missing picture, garbled text, unexpected
+    permission/UAC prompt, or firewall prompt? Describe it.
+    (CALSS should never ask for administrator rights. A Windows Firewall
+    prompt during Classroom sign-in is possible - note what it said.)
+
+Return: this list with PASS/FAIL/SKIPPED + letter for each FAIL,
+screenshots, and your Windows version.

@@ -3,3 +3,6 @@
 stress_test/** -text
 stress_test_bscs7/** -text
 authorship-cpp/tests/golden/** -text
+
+# User-facing release docs: CRLF for Notepad on any Windows version.
+authorship-cpp/release_docs/*.txt text eol=crlf
