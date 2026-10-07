@@ -72,3 +72,7 @@ std::string appDataDirU8() {
 std::string appReportsDirU8() {
     return knownSubdirU8(CSIDL_PERSONAL, L"CALSS Reports");
 }
+
+std::string appImportsDirU8() {
+    return knownSubdirU8(CSIDL_PERSONAL, L"CALSS Imports");
+}

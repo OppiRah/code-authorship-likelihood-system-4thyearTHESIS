@@ -541,8 +541,10 @@ static bool pickFiles(HWND hwndParent, std::vector<std::wstring>& outFiles) {
 static bool importFilesToFolder(const std::vector<std::wstring>& files,
                                   std::wstring& outFolder)
 {
-    outFolder = L"imported_data";
-    CreateDirectoryW(outFolder.c_str(), nullptr);
+    // Documents\CALSS Imports. Was "imported_data" relative to the
+    // working directory, which is the read-only install folder (or
+    // System32) when CALSS is started from an installed shortcut.
+    outFolder = widenUtf8(appImportsDirU8());
 
     int copied = 0;
     for (const auto& srcPath : files) {

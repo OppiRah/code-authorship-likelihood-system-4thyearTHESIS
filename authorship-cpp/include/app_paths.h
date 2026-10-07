@@ -40,4 +40,8 @@ std::string  appDataDirU8();
 // the exe's folder if Documents can't be resolved.
 std::string  appReportsDirU8();
 
+// Documents\CALSS Imports (UTF-8), created if missing: where
+// File > Import .c Files copies the picked files. Same fallback.
+std::string  appImportsDirU8();
+
 #endif // APP_PATHS_H
