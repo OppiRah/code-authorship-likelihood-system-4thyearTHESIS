@@ -12,10 +12,12 @@
 // one for a release that adds or changes features.
 // 1.1.0 = Classroom downloads moved to %LOCALAPPDATA%\CALSS\Classroom
 // (removed on uninstall) + Gemini model discovery / model dropdown.
+// 1.2.0 = Overview AI summary organized by class (professor feedback):
+// notable cases, collapsible class sections, per-class AI summaries.
 // ─────────────────────────────────────────────────────────────
 
 #define CALSS_VERSION_MAJOR 1
-#define CALSS_VERSION_MINOR 1
+#define CALSS_VERSION_MINOR 2
 #define CALSS_VERSION_PATCH 0
 
 #define CALSS_STR2_(x) #x
