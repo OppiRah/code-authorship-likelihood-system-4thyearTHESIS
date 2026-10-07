@@ -561,9 +561,18 @@ static std::string callGeminiAPI(const std::string& apiKey,
                                    std::string& error)
 {
     error.clear();
+    // Both AI calls (Tier 1 and Tier 2) ask for a raw JSON array of
+    // strings. Gemini's structured output (generationConfig
+    // responseMimeType + responseSchema, ai.google.dev/api/generate-content)
+    // makes the reply valid JSON of exactly that shape, instead of relying
+    // on the model following the prompt — gemini-3.5-flash-lite was seen
+    // returning a malformed array (1 element instead of 50) in one of four
+    // Tier 1 runs without it. The prompt text itself is unchanged.
     std::ostringstream body;
     body << "{\"contents\":[{\"parts\":[{\"text\":\""
-         << jsonEscape(prompt) << "\"}]}]}";
+         << jsonEscape(prompt) << "\"}]}],"
+            "\"generationConfig\":{\"responseMimeType\":\"application/json\","
+            "\"responseSchema\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"}}}}";
     std::string bodyStr = body.str();
 
     bool refresh = false;
