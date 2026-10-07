@@ -151,20 +151,34 @@ static std::string resolveAuditLogPath() {
     return utf8FromWide(dir + L"\\audit.log");
 }
 
+// The log is opened for APPEND ONLY (FILE_APPEND_DATA, not
+// FILE_WRITE_DATA): every write lands at the end of the file and
+// nothing earlier can be overwritten or truncated through this handle.
+// That is also all the access CALSS needs, so on a shared PC the
+// installer grants the Users group exactly that on audit.log (see
+// installer/calss.iss and docs/RELEASE_READINESS.md) -- std::ofstream's
+// append mode asks for full write access and was refused for every
+// Windows user except the one who created the file. Each entry goes out
+// in one WriteFile call, in the same CRLF text format as before.
 void audit_log(const std::string& category, const std::string& details) {
     static std::string logPath = resolveAuditLogPath();
 
-    std::ofstream f(pathFromUtf8(logPath), std::ios::app);
-    if (!f.is_open()) return;
-
-    f << "[" << timestamp() << "] " << category << "\n";
+    std::string entry = "[" + timestamp() + "] " + category + "\r\n";
     // Indent each line of details
     std::istringstream iss(details);
     std::string line;
     while (std::getline(iss, line)) {
-        f << "  " << line << "\n";
+        entry += "  " + line + "\r\n";
     }
-    f << "\n";
+    entry += "\r\n";
+
+    HANDLE h = CreateFileW(widenUtf8(logPath).c_str(), FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    DWORD written = 0;
+    WriteFile(h, entry.data(), (DWORD)entry.size(), &written, nullptr);
+    CloseHandle(h);
 }
 
 std::string audit_getLogPath() {
