@@ -67,7 +67,33 @@ struct PairAnalysisDisplay {
     AuthorshipDisplay studentA;
     AuthorshipDisplay studentB;
     std::string interpretation;
+    // Class ("block") of each file, from the data folder's
+    // calss_sync_manifest.jsonl — the same source and names as the
+    // Classes tab's block chips (Classroom course + section, or the
+    // subfolder name for manually organized files). "" = no block
+    // recorded (shown as "General", like the Classes tab). Labels only;
+    // never used in scoring.
+    std::string blockA;
+    std::string blockB;
 };
+
+// Flagged pairs grouped by class for the Overview (1.2.0). Built once
+// per run by runAnalysisPipeline from the blocks above; order and
+// membership are CALSS's, never Gemini's. A pair whose two files are in
+// the same block belongs to that block; a pair whose files are in two
+// different blocks (CALSS compares across blocks) belongs to the single
+// "Across classes" group.
+struct FlaggedPairGroup {
+    std::string key;             // stable id: block name, "General", or CROSS_CLASS_GROUP_KEY
+    std::string label;           // what the UI shows
+    bool        acrossClasses = false;
+    std::vector<int> pairIndices; // into flaggedPairs, in flaggedPairs order (score desc)
+    // Optional Gemini text for this group; empty = none returned / not requested.
+    std::string aiSummary;
+    bool        aiCovered = false; // this group was included in the AI request
+};
+// Can't collide with a block name (control character first).
+static const char* const CROSS_CLASS_GROUP_KEY = "\x01" "across";
 
 // AI-generated per-pair evidence narration (Tier 1 of the AI summary
 // restructure). Defined here rather than in gemini.h so that
@@ -148,6 +174,9 @@ struct AnalysisResults {
 
     std::vector<StudentProfileSummary> profiles;
     std::vector<PairAnalysisDisplay>   flaggedPairs;
+    // flaggedPairs grouped by class (see FlaggedPairGroup); every
+    // flagged pair is in exactly one group.
+    std::vector<FlaggedPairGroup>      flaggedGroups;
     std::vector<PairRow>               allPairs;
 
     // Files that did not match any known category (Classroom title

@@ -367,12 +367,10 @@ long jsonNumberField(const std::string& obj, const char* key) {
     return std::strtol(obj.c_str() + p + 1, nullptr, 10);
 }
 
-// Splits the "models" array of a models.list reply into its top-level
-// objects (brace matching that skips over strings). False if malformed.
-bool splitModelObjects(const std::string& json, std::vector<std::string>& out) {
-    size_t p = json.find("\"models\"");
-    if (p == std::string::npos) return json.find('{') != std::string::npos; // no models at all
-    p = json.find('[', p);
+// Splits the array under "key" into its top-level objects (brace
+// matching that skips over strings). False if the array is malformed.
+bool splitArrayObjects(const std::string& json, size_t keyPos, std::vector<std::string>& out) {
+    size_t p = json.find('[', keyPos);
     if (p == std::string::npos) return false;
     int depth = 0; bool inStr = false; size_t start = 0;
     for (size_t i = p + 1; i < json.size(); ++i) {
@@ -384,6 +382,13 @@ bool splitModelObjects(const std::string& json, std::vector<std::string>& out) {
         else if (ch == ']' && depth == 0) return true;
     }
     return false;
+}
+
+// The "models" array of a models.list reply. No "models" key = no models.
+bool splitModelObjects(const std::string& json, std::vector<std::string>& out) {
+    size_t p = json.find("\"models\"");
+    if (p == std::string::npos) return json.find('{') != std::string::npos;
+    return splitArrayObjects(json, p, out);
 }
 
 // models.list, all pages. On failure returns the classified error.
@@ -554,25 +559,45 @@ std::string gemini_lastModelUsed() {
     return g_lastModelUsed;
 }
 
+// Response schemas (Gemini structured output: generationConfig
+// responseMimeType + responseSchema, ai.google.dev/api/generate-content).
+// They make the reply valid JSON of exactly that shape instead of relying
+// on the model following the prompt — gemini-3.5-flash-lite was seen
+// returning a malformed array (1 element instead of 50) in one of four
+// Tier 1 runs without it.
+//   Tier 1: one narrative per pair, in order.
+static const char* SCHEMA_STRING_ARRAY =
+    "{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"}}";
+//   Tier 2 (1.2.0): overall findings + one summary per class id
+//   ("G1", "G2", ... assigned by CALSS). Only text comes back; every
+//   name, count, score and the grouping itself stay CALSS's. groups has
+//   minItems = maxItems = the number of classes in the prompt, because
+//   without it the model was seen leaving one class out.
+static std::string overviewSchema(size_t groupCount) {
+    std::string n = std::to_string(groupCount);
+    return "{\"type\":\"OBJECT\",\"properties\":{"
+             "\"overall\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"},"
+               "\"minItems\":1,\"maxItems\":3},"
+             "\"groups\":{\"type\":\"ARRAY\",\"minItems\":" + n + ",\"maxItems\":" + n + ","
+               "\"items\":{\"type\":\"OBJECT\",\"properties\":{"
+                 "\"id\":{\"type\":\"STRING\"},\"summary\":{\"type\":\"STRING\"}},"
+                 "\"required\":[\"id\",\"summary\"]}}},"
+           "\"required\":[\"overall\",\"groups\"]}";
+}
+
 // generateContent on the selected model, with the one-time fallback
 // described at the top of this section. Returns the raw JSON reply.
 static std::string callGeminiAPI(const std::string& apiKey,
                                    const std::string& prompt,
-                                   std::string& error)
+                                   std::string& error,
+                                   const char* responseSchema = SCHEMA_STRING_ARRAY)
 {
     error.clear();
-    // Both AI calls (Tier 1 and Tier 2) ask for a raw JSON array of
-    // strings. Gemini's structured output (generationConfig
-    // responseMimeType + responseSchema, ai.google.dev/api/generate-content)
-    // makes the reply valid JSON of exactly that shape, instead of relying
-    // on the model following the prompt — gemini-3.5-flash-lite was seen
-    // returning a malformed array (1 element instead of 50) in one of four
-    // Tier 1 runs without it. The prompt text itself is unchanged.
     std::ostringstream body;
     body << "{\"contents\":[{\"parts\":[{\"text\":\""
          << jsonEscape(prompt) << "\"}]}],"
             "\"generationConfig\":{\"responseMimeType\":\"application/json\","
-            "\"responseSchema\":{\"type\":\"ARRAY\",\"items\":{\"type\":\"STRING\"}}}}";
+            "\"responseSchema\":" << responseSchema << "}}";
     std::string bodyStr = body.str();
 
     bool refresh = false;
@@ -715,87 +740,118 @@ static std::string buildPairNarrativePrompt(
     return prompt.str();
 }
 
-// ── Tier 2: cross-pair pattern detection ────────────────────────
+// ── Tier 2: overall findings + per-class summaries (1.2.0) ──────
+//
+// One request, as before. Up to 1.1.0 this prompt asked for 2-4
+// cross-pair "findings" about the top GEMINI_MAX_PAIRS pairs. It now
+// also gets CALSS's grouping of flagged pairs by class (FlaggedPairGroup)
+// and returns, as a JSON object (overviewSchema):
+//   overall: 1-3 short findings across all classes (shown first)
+//   groups:  [{id:"G1", summary:"..."}] — one per class listed
+// CALSS assigns the ids and owns every name, count, score and the order;
+// summaries are matched back by id, never by name. The pairs shown to
+// Gemini stay within GEMINI_MAX_PAIRS in total: up to
+// GEMINI_MAX_GROUPS classes, each with its highest-scoring pairs.
+static const size_t GEMINI_MAX_GROUPS = 10;
 
-static std::string buildCrossPairPrompt(
-    const std::vector<PairAnalysisDisplay>& flagged)
+static std::string groupId(size_t i) { return "G" + std::to_string(i + 1); }
+
+static std::string buildOverviewPrompt(
+    const std::vector<PairAnalysisDisplay>& flagged,
+    std::vector<FlaggedPairGroup>& groups)
 {
+    // Which classes and pairs go into the prompt (CALSS order throughout).
+    size_t covered = std::min(groups.size(), GEMINI_MAX_GROUPS);
+    size_t perGroup = covered ? std::max<size_t>(3, GEMINI_MAX_PAIRS / covered) : 0;
+    size_t budget = GEMINI_MAX_PAIRS;
+
     std::ostringstream prompt;
-
-    prompt << "You are an academic integrity analyst reviewing multiple "
-              "flagged code-similarity pairs from one assignment. Below, "
-              "for each pair, is which features deviated for each student "
-              "(not full text -- just which features and their category). "
-              "Identify whether multiple pairs share the same deviating "
-              "feature cluster (a possible common external source) versus "
-              "pairs that look like independent, unrelated incidents.\n\n";
-
+    prompt << "You are an academic integrity analyst helping an instructor read "
+              "the results of CALSS, a code similarity and authorship-consistency "
+              "screening tool. CALSS has already computed every score, flag and "
+              "grouping below. Your job is only to explain them.\n\n";
+    prompt << "The flagged code-similarity pairs are organized by CLASS, as "
+              "recorded in CALSS. For each class you get its id (G1, G2, ...), "
+              "its name, how many pairs CALSS flagged in it, and its "
+              "highest-scoring flagged pairs with the features that deviated "
+              "from each student's own style profile. A class called 'Across "
+              "classes' holds pairs whose two students are in different "
+              "classes.\n\n";
+    prompt << "WRITE:\n";
+    prompt << "1. overall: 1 to 3 short findings giving the main picture across "
+              "all classes -- where flagged cases concentrate, and whether "
+              "several pairs share the same deviating-feature cluster (a "
+              "possible common external source) or look like independent, "
+              "unrelated cases.\n";
+    prompt << "2. groups: for EACH class id listed below, exactly one entry "
+              "with that id and a short summary (1-2 sentences) of what "
+              "characterizes that class's flagged pairs.\n\n";
     prompt << "RULES:\n";
-    prompt << "- Base this ONLY on the deviation data given below. Do not "
-              "invent a shared cause -- if nothing overlaps, say so plainly "
-              "as the single finding.\n";
-    prompt << "- Never use the words 'cheated' or 'plagiarized'.\n";
+    prompt << "- Base everything ONLY on the data given below. Do not invent "
+              "causes, context or details. Do not compute new statistics; if "
+              "you mention a number, use one given here.\n";
+    prompt << "- Never use the words 'cheated', 'cheating', 'plagiarized' or "
+              "'plagiarism', and never state or imply that a student is "
+              "guilty. Scores measure code similarity and consistency with a "
+              "student's own style; they are not probabilities of misconduct. "
+              "Use language like 'flagged', 'warrants manual review', "
+              "'deviates from profile'.\n";
+    prompt << "- Do not rank or compare students yourself; the order below is "
+              "CALSS's.\n";
     prompt << "- Whenever you mention a specific pair, cite it as 'Pair N' "
               "using the number from its '--- PAIR N' header below, e.g. "
-              "'Pair 3 (CastroBryan vs DizonCzarina)'. For several pairs "
-              "write 'Pairs 1, 3 and 12'. Never refer to a pair by student "
-              "names alone -- the 'Pair N' number is what the instructor "
-              "clicks to open that pair.\n";
-    prompt << "- Cite at most 5 pairs per finding. When a pattern spans more "
-              "pairs than that, give the total and name the lowest-numbered "
-              "(highest-scoring) examples, e.g. 'shared by 112 pairs, "
-              "including Pairs 1, 8 and 10'. Never list every pair.\n";
-    prompt << "- Each finding must be self-contained (2-3 sentences max) "
-              "and readable on its own, since findings are shown as "
-              "separate items, not one continuous paragraph.\n";
-    prompt << "- Plain professional language. No markdown headers, no "
-              "bullet characters inside a finding -- the array itself "
-              "provides the separation.\n\n";
+              "'Pair 3 (CastroBryan vs DizonCzarina)'. Never refer to a pair "
+              "by student names alone -- the 'Pair N' number is what the "
+              "instructor clicks to open that pair. Cite at most 3 pairs per "
+              "finding or summary; never list every pair.\n";
+    prompt << "- Each finding and each class summary must be self-contained "
+              "and short (overall findings at most 2 sentences, class "
+              "summaries 1-2 sentences). Do not repeat the class name or its "
+              "flagged-pair count -- CALSS shows them next to your text.\n";
+    prompt << "- Plain professional language. No markdown, no headers, no "
+              "bullet characters.\n\n";
 
-    prompt << "RESPONSE FORMAT (critical):\n";
-    prompt << "Return ONLY a raw JSON array of 2 to 4 strings, one per "
-              "distinct finding, ordered with the most notable pattern "
-              "first. If there is truly nothing worth separating into "
-              "multiple findings, return a single-element array. No "
-              "markdown code fences, no keys, no extra text before or "
-              "after the array. Example shape: [\"finding one\", "
-              "\"finding two\"]\n\n";
-
-    prompt << "FLAGGED PAIRS (" << flagged.size() << " total):\n";
-    for (size_t i = 0; i < flagged.size(); ++i) {
-        const auto& p = flagged[i];
-        prompt << "--- PAIR " << (i + 1) << ": " << p.studentA.studentName
-               << " vs " << p.studentB.studentName << " ("
-               << p.combinedScore << "%) ---\n";
-
-        auto listFeatureNames = [&](const std::string& who,
-                                     const AuthorshipDisplay& d) {
-            std::vector<std::string> devs;
-            auto collect = [&](const std::vector<StyleNoteDisplay>& fs) {
-                for (const auto& f : fs)
-                    if (!f.isMatch) devs.push_back("[" + f.category + "] " + f.feature);
-            };
-            collect(d.lexicalFeatures);
-            collect(d.layoutFeatures);
-            collect(d.syntacticFeatures);
-
-            prompt << who << " (" << d.studentName << ") deviating features: ";
-            if (devs.empty()) {
-                prompt << "none";
-            } else {
+    prompt << "CLASSES (" << groups.size() << " with flagged pairs; "
+           << flagged.size() << " flagged pairs in total):\n";
+    for (size_t g = 0; g < covered && budget > 0; ++g) {
+        FlaggedPairGroup& grp = groups[g];
+        size_t take = std::min({grp.pairIndices.size(), perGroup, budget});
+        budget -= take;
+        grp.aiCovered = true;
+        prompt << "\n=== " << groupId(g) << ": " << grp.label << " -- "
+               << grp.pairIndices.size() << " flagged pair"
+               << (grp.pairIndices.size() == 1 ? "" : "s")
+               << " (showing the top " << take << ") ===\n";
+        for (size_t k = 0; k < take; ++k) {
+            int idx = grp.pairIndices[k];
+            const auto& p = flagged[idx];
+            prompt << "--- PAIR " << (idx + 1) << ": " << p.studentA.studentName
+                   << " vs " << p.studentB.studentName << " ("
+                   << p.combinedScore << "%) ---\n";
+            auto listFeatureNames = [&](const std::string& who,
+                                         const AuthorshipDisplay& d) {
+                std::vector<std::string> devs;
+                auto collect = [&](const std::vector<StyleNoteDisplay>& fs) {
+                    for (const auto& f : fs)
+                        if (!f.isMatch) devs.push_back("[" + f.category + "] " + f.feature);
+                };
+                collect(d.lexicalFeatures);
+                collect(d.layoutFeatures);
+                collect(d.syntacticFeatures);
+                prompt << who << " (" << d.studentName << ") deviating features: ";
+                if (devs.empty()) prompt << "none";
                 for (size_t j = 0; j < devs.size(); ++j) {
                     if (j) prompt << ", ";
                     prompt << devs[j];
                 }
-            }
-            prompt << "\n";
-        };
-        listFeatureNames("Student A", p.studentA);
-        listFeatureNames("Student B", p.studentB);
-        prompt << "\n";
+                prompt << "\n";
+            };
+            listFeatureNames("Student A", p.studentA);
+            listFeatureNames("Student B", p.studentB);
+        }
     }
-
-    prompt << "Return the JSON array of findings now:";
+    prompt << "\nReturn the JSON object now (overall + one groups entry per "
+              "class id above).";
     return prompt.str();
 }
 
@@ -933,7 +989,8 @@ std::vector<AIPairNarrative> generatePairNarratives(
 }
 
 AIBatchPatterns generateCrossPairPatterns(
-    const std::vector<PairAnalysisDisplay>& flagged)
+    const std::vector<PairAnalysisDisplay>& flagged,
+    std::vector<FlaggedPairGroup>& groups)
 {
     AIBatchPatterns result;
     result.success = false;
@@ -952,11 +1009,14 @@ AIBatchPatterns generateCrossPairPatterns(
         return result;
     }
 
-    std::string prompt = buildCrossPairPrompt(flagged);
+    std::string prompt = buildOverviewPrompt(flagged, groups);
 
 #ifdef _WIN32
     std::string error;
-    std::string response = callGeminiAPI(apiKey, prompt, error);
+    size_t covered = 0;
+    for (const auto& g : groups) if (g.aiCovered) ++covered;
+    std::string schema = overviewSchema(covered);
+    std::string response = callGeminiAPI(apiKey, prompt, error, schema.c_str());
     if (response.empty()) {
         result.success = false;
         result.error = error;
@@ -970,13 +1030,36 @@ AIBatchPatterns generateCrossPairPatterns(
         return result;
     }
 
+    // overall: the findings list shown first on the Overview.
     std::vector<std::string> findings;
-    if (!extractJsonStringArray(text, findings)) {
-        result.success = false;
-        result.error = "AI response was not a valid findings array";
-        return result;
+    size_t ov = text.find("\"overall\"");
+    if (ov != std::string::npos) extractJsonStringArray(text.substr(ov), findings);
+
+    // groups: matched to CALSS's groups by the id CALSS gave them;
+    // unknown ids, duplicates and empty summaries are ignored, so a
+    // missing or malformed entry just leaves that class without AI text.
+    int matched = 0;
+    size_t gk = text.find("\"groups\"");
+    std::vector<std::string> objs;
+    if (gk != std::string::npos && splitArrayObjects(text, gk, objs)) {
+        for (const auto& o : objs) {
+            std::string id = jsonStringField(o, "id");
+            std::string summary = jsonStringField(o, "summary");
+            for (size_t g = 0; g < groups.size(); ++g) {
+                if (groupId(g) == id && groups[g].aiCovered &&
+                    groups[g].aiSummary.empty() && !summary.empty()) {
+                    groups[g].aiSummary = summary;
+                    ++matched;
+                }
+            }
+        }
     }
 
+    if (findings.empty() && matched == 0) {
+        result.success = false;
+        result.error = "AI response did not contain an overall summary or class summaries";
+        return result;
+    }
     result.findings = std::move(findings);
     result.success = true;
     result.model = gemini_lastModelUsed();

@@ -566,6 +566,66 @@ static bool reportProgress(AnalysisPhase phase, int current, int total) {
     return true; // no callback registered — never cancel
 }
 
+// ── Class (block) labels for the Overview grouping (1.2.0) ─────
+// file name (with .c) -> block, from the data folder's
+// calss_sync_manifest.jsonl: the same file and "block" field the
+// Classes tab reads (gc_loadSyncManifest in google_classroom.cpp, which
+// this file doesn't link). Read once per run, after loadFolder() has
+// tagged subfolder files. Labels only — nothing here feeds scoring.
+static std::map<std::string, std::string> readManifestBlocks(const std::string& folder) {
+    std::map<std::string, std::string> blocks;
+    std::ifstream f(pathFromUtf8(folder + "\\calss_sync_manifest.jsonl"));
+    if (!f.is_open()) return blocks;
+    auto field = [](const std::string& line, const std::string& key) -> std::string {
+        std::string search = "\"" + key + "\":\"";
+        size_t pos = line.find(search);
+        if (pos == std::string::npos) return "";
+        pos += search.size();
+        size_t end = line.find('"', pos);
+        return end == std::string::npos ? "" : line.substr(pos, end - pos);
+    };
+    std::string line;
+    while (std::getline(f, line)) {
+        std::string file = field(line, "file");
+        if (!file.empty()) blocks[file] = field(line, "block");  // last entry wins, as in the Classes tab
+    }
+    return blocks;
+}
+
+// Groups flaggedPairs by class. Same-block pairs go to their block
+// ("General" when no block is recorded, as on the Classes tab); pairs
+// spanning two blocks go to one "Across classes" group. Order: block
+// names alphabetically, then General, then Across classes. Pair order
+// inside a group is flaggedPairs order (combined score, highest first).
+static std::vector<FlaggedPairGroup> buildFlaggedGroups(
+    const std::vector<PairAnalysisDisplay>& pairs)
+{
+    std::map<std::string, FlaggedPairGroup> byKey;
+    for (size_t i = 0; i < pairs.size(); ++i) {
+        std::string a = pairs[i].blockA.empty() ? "General" : pairs[i].blockA;
+        std::string b = pairs[i].blockB.empty() ? "General" : pairs[i].blockB;
+        bool across = (a != b);
+        std::string key = across ? CROSS_CLASS_GROUP_KEY : a;
+        FlaggedPairGroup& g = byKey[key];
+        if (g.key.empty()) {
+            g.key = key;
+            g.label = across ? "Across classes" : a;
+            g.acrossClasses = across;
+        }
+        g.pairIndices.push_back((int)i);
+    }
+    auto rank = [](const FlaggedPairGroup& g) {
+        return g.acrossClasses ? 2 : (g.key == "General" ? 1 : 0);
+    };
+    std::vector<FlaggedPairGroup> out;
+    for (auto& kv : byKey) out.push_back(std::move(kv.second));
+    std::stable_sort(out.begin(), out.end(), [&](const FlaggedPairGroup& l, const FlaggedPairGroup& r) {
+        if (rank(l) != rank(r)) return rank(l) < rank(r);
+        return l.label < r.label;
+    });
+    return out;
+}
+
 std::string runAnalysisPipeline(const std::string& dataFolder,
                                   bool useAI)
 {
@@ -831,6 +891,18 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
         g_analysisResults.flaggedPairs.push_back(disp);
     }
 
+    // Class labels + Overview grouping (presentation only).
+    {
+        auto blocks = readManifestBlocks(dataFolder);
+        for (auto& p : g_analysisResults.flaggedPairs) {
+            auto a = blocks.find(p.filenameA + ".c");
+            auto b = blocks.find(p.filenameB + ".c");
+            if (a != blocks.end()) p.blockA = a->second;
+            if (b != blocks.end()) p.blockB = b->second;
+        }
+        g_analysisResults.flaggedGroups = buildFlaggedGroups(g_analysisResults.flaggedPairs);
+    }
+
     // Build all pairs table
     for (const auto& r : allPairs) {
         if (!r.success) continue;
@@ -872,7 +944,10 @@ std::string runAnalysisPipeline(const std::string& dataFolder,
                         std::to_string(sent) + " highest-scoring flagged pairs.";
             g_analysisResults.aiPairNarratives.push_back(n);
         }
-        g_analysisResults.aiBatchPatterns = generateCrossPairPatterns(aiPairs);
+        // Overview: overall findings + per-class summaries in ONE request
+        // (still two Gemini requests per run in total).
+        g_analysisResults.aiBatchPatterns =
+            generateCrossPairPatterns(all, g_analysisResults.flaggedGroups);
         reportProgress(AnalysisPhase::GeneratingSummary, 1, 1);
     } else {
         g_analysisResults.aiBatchPatterns.skipped = true;

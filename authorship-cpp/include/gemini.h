@@ -94,9 +94,14 @@ constexpr size_t GEMINI_MAX_PAIRS = 50;
 std::vector<AIPairNarrative> generatePairNarratives(
     const std::vector<PairAnalysisDisplay>& flagged);
 
-// Cross-pair pattern detection (Tier 2). Skips (does not call the API)
-// when fewer than 2 pairs are flagged, since there is nothing to compare.
+// Overview summary (Tier 2): one request returning overall findings
+// (AIBatchPatterns::findings) and a short summary per class, written
+// into groups[i].aiSummary (matched by the id CALSS assigns; see
+// buildOverviewPrompt in gemini.cpp). `flagged` is ALL flagged pairs;
+// at most GEMINI_MAX_PAIRS of them, across at most 10 classes, go into
+// the prompt. Skips (no API call) when fewer than 2 pairs are flagged.
 AIBatchPatterns generateCrossPairPatterns(
-    const std::vector<PairAnalysisDisplay>& flagged);
+    const std::vector<PairAnalysisDisplay>& flagged,
+    std::vector<FlaggedPairGroup>& groups);
 
 #endif // GEMINI_H
