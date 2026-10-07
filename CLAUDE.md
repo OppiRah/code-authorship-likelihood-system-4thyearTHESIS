@@ -401,8 +401,29 @@ Record: `docs/RELEASE_READINESS.md` §8.
   stored in `%LOCALAPPDATA%\CALSS\gemini_model.txt`).
 - Google limits the 2.5 models to accounts that used them before —
   that is why a new tester key failed on 1.0.0's `gemini-2.5-flash-lite`.
-- **Status:** READY FOR CROSS-PC TESTING of `CALSS_Setup_1.1.0.exe`
-  (new key on another PC, real Classroom sync + uninstall cleanup).
+- **Status:** superseded by 1.2.0 below.
+
+## CALSS 1.2.0 (2026-10-08)
+
+Record: `docs/RELEASE_READINESS.md` §9. Professor feedback ("organize
+the analyses by subject or class"), Overview only; the "continue where
+I left off" history idea is NOT implemented.
+- **Grouping = the manifest `block`** (same as the Classes tab chips):
+  `PairAnalysisDisplay::blockA/B` + `AnalysisResults::flaggedGroups`
+  built in `analysis_pipeline.cpp` (`readManifestBlocks`,
+  `buildFlaggedGroups`). Same-block pair -> that block / "General";
+  two blocks -> "Across classes". Labels only, never scoring.
+- **Tier 2 Gemini** (still 1 request; 2 per run) returns
+  `{overall:[1-3], groups:[{id:"G1",summary}]}`; ids assigned by CALSS,
+  matched back by id; <= 10 classes and <= 50 pairs in the prompt.
+- **Overview** (`gui_overview.cpp`): overall findings (old block,
+  renamed `drawAIOverall`), NOTABLE CASES (top 5 flaggedPairs, only
+  with 2+ classes), FLAGGED PAIRS BY CLASS (collapsible; rows reuse
+  `g_aiSummaryLinkRects` -> `jumpToFlaggedPair`). Deterministic parts
+  render with AI off/failed.
+- **Status:** READY FOR FINAL CROSS-PC TESTING of
+  `CALSS_Setup_1.2.0.exe` (plus the open 1.1.0 checks: friend's key,
+  real Classroom sync + uninstall cleanup).
 
 Claude Code note: in this environment `cmd /c compile.bat` fails with
 "not recognized"; run batch files by full quoted path

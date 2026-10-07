@@ -2,9 +2,10 @@
 
 Status of branch `optimization-pass` as a release candidate. §1–§5 were
 written in Phase 4 as the input for the installer; §6 is the portable
-test package; §7 is the Phase 5 installer (CALSS 1.0.0); **§8 is CALSS
-1.1.0 (Classroom storage, Gemini model discovery)** and is the current
-state wherever it differs from the earlier sections.
+test package; §7 is the Phase 5 installer (CALSS 1.0.0); §8 is CALSS
+1.1.0 (Classroom storage, Gemini model discovery); **§9 is CALSS 1.2.0
+(Overview AI summary organized by class)** and is the current state
+wherever it differs from the earlier sections.
 
 ## 1. What a release consists of
 
@@ -605,3 +606,168 @@ Send testers: `CALSS_Setup_1.1.0.exe`, `CALSS_Setup_1.1.0_SHA256.txt`,
 `CALSS_SampleData_SYNTHETIC.zip`, `release_docs\INSTALLER_TEST_CHECKLIST.txt`
 (updated for 1.1.0: model check in item 19, Classroom path in item 20,
 Classroom cleanup in item 22).
+
+## 9. CALSS 1.2.0 — Overview AI summary organized by class (2026-10-08)
+
+Branch `optimization-pass`. Commits: `0924c30` (grouping + Gemini
+per-class summaries), `98ff059` (Overview UI), `3bbd899` (version
+1.2.0), then this documentation. Golden check byte-identical after each
+source commit; no methodology code touched. 1.0.0 and 1.1.0 installers
+are kept unchanged next to the new one.
+
+### 9.1 Why
+
+An interviewed professor: *"…It would also be helpful if the analyses
+could be organized by subject or class, especially when working with
+different subjects."* The team clarified this means the AI analysis on
+the Overview. (The "continue where I left off" history part of the same
+feedback is **not** in this release.)
+
+### 9.2 Before / after
+
+**1.1.0 Overview AI area:** one "AI INSTRUCTOR SUMMARY" block: 2–4
+numbered cross-pair findings from one Gemini request (Tier 2) over the
+top 50 flagged pairs, with clickable "Pair N" links, and the model
+signature. No notion of classes; nothing in this area when AI was off,
+missing or failed except a message.
+
+**1.2.0 Overview AI area (stats, headline and language notice above it
+are unchanged):**
+1. **AI INSTRUCTOR SUMMARY** — same block, now 1–3 short *overall*
+   findings (same rendering, links and signature; same off / no-key /
+   failed messages).
+2. **NOTABLE CASES** — only when there are 2+ classes: the top 5 flagged
+   pairs in CALSS's own order (flaggedPairs, i.e. combined score, the
+   same order as the Flagged pairs tab), each with its class. No new
+   metric, threshold or AI ranking. Hidden with one class because it
+   would repeat that class's list.
+3. **FLAGGED PAIRS BY CLASS** — one collapsible section per class:
+   ▾/▸, class name, *N flagged pairs · highest X%* (CALSS); when open:
+   the Gemini summary for that class (gold rule, "Pair N" links) or its
+   state, then the class's top 5 pairs, and "Showing the top 5 of N in
+   this class. Open Flagged pairs ›".
+
+Every pair row (score in severity colour, its #N in Flagged pairs,
+*A ↔ B*, class context, *View ›*) uses the existing
+`g_aiSummaryLinkRects` → `jumpToFlaggedPair` path, the same as the
+"Pair N" links: it opens Flagged pairs with that pair expanded and
+scrolled to. Rows and headers are keyboard focusables (`AISummaryLink`,
+new `OverviewGroupToggle`) and get the roster-style hover highlight.
+Default: all sections open with ≤ 3 classes, otherwise only the first;
+reset after each run. Toggling only repaints — no analysis, no network.
+Notable cases + class sections are CALSS data and are drawn whether AI
+is off, missing, failed or partial.
+
+### 9.3 Academic grouping used
+
+CALSS already has one grouping: the **block** stored per file in the
+data folder's `calss_sync_manifest.jsonl` — Classroom course name +
+section after a sync, or the subfolder name for manually organized
+folders. The Classes tab shows exactly these as its block chips, and
+students without one as "General". 1.2.0 uses the same field and names
+(UI wording "class", like the tab):
+- `PairAnalysisDisplay::blockA/blockB` = each file's block (pipeline,
+  `readManifestBlocks`, same file/field as `gc_loadSyncManifest`).
+- `AnalysisResults::flaggedGroups` (`buildFlaggedGroups`): both files in
+  the same block → that block (or "General"); files in two different
+  blocks → one **"Across classes"** group (CALSS compares across
+  blocks, so these pairs exist and are labeled honestly instead of being
+  forced into one side). Order: block names A–Z, General, Across
+  classes; pairs in flaggedPairs order. Every flagged pair is in exactly
+  one group.
+- There is no separate "subject" field in CALSS; a block name such as
+  "Programming 1 (C Language) - BSIT Block 1" already carries the
+  subject when it comes from Classroom.
+
+### 9.4 CALSS vs Gemini
+
+| From CALSS (deterministic) | From Gemini (optional text) |
+|---|---|
+| class names, grouping, order, membership; flagged counts; highest score; every pair's score, #N, names; Notable cases selection; all links | overall findings (1–3 strings); one summary per class (matched by id) |
+
+### 9.5 Gemini request, schema and prompt
+
+- **Requests:** unchanged — **2 generateContent per run** (Tier 1 per-pair
+  notes for the top 50, Tier 2 overview), plus the 1.1.0 models.list on
+  first use and at most one model-fallback retry per call. 1.1.0 had the
+  same worst case. No per-class or per-pair requests were added.
+- **Tier 2 input:** at most 10 classes (`GEMINI_MAX_GROUPS`) and at most
+  `GEMINI_MAX_PAIRS` (50) pairs in total: each class's top
+  max(3, 50 / classes) pairs, in CALSS order, with the same per-pair
+  deviating-feature lists as before. Classes beyond 10 show "AI
+  summaries cover the first 10 classes".
+- **Schema before (Tier 2):** `ARRAY of STRING` (2–4 findings).
+  **After:** `OBJECT {overall: ARRAY of STRING (1–3), groups: ARRAY
+  (min = max = classes sent) of OBJECT {id: STRING, summary: STRING}}`,
+  both required. Ids `G1…Gn` are assigned by CALSS; summaries are
+  mapped back by id (unknown/duplicate/empty entries ignored). The
+  min/max was added because the model once returned 4 of 5 classes.
+  Tier 1's schema is unchanged.
+- **Prompt changes (`buildOverviewPrompt`, replaces `buildCrossPairPrompt`):**
+  kept: base only on the data; never "cheated"/"plagiarized"; cite pairs
+  as "Pair N" from the headers; cite a limited number; self-contained,
+  plain text. Added: role framing ("CALSS has already computed every
+  score, flag and grouping… only explain them"); the class structure
+  (`=== G1: <name> -- N flagged pairs (showing the top K) ===`); WRITE
+  section for `overall` and `groups`; scores are not probabilities of
+  misconduct, never state or imply guilt, also no
+  "cheating"/"plagiarism"; do not rank students; no new statistics;
+  summaries 1–2 sentences and don't repeat the class name/count; refer
+  to classes by name, never by id (the model wrote "the single class
+  G1" once). Tier 1's prompt is unchanged.
+
+### 9.6 Failure behavior
+
+| Situation | Overview |
+|---|---|
+| AI not requested / no key | existing message in the summary block; class sections without AI lines |
+| Gemini failed (network, quota, 5xx, bad key, no model) | existing "AI summary unavailable: …" message; each class: "AI summary unavailable for this class." |
+| overall present, a class missing | that class: "No AI summary was returned for this class." |
+| classes present, overall missing | "No overall summary was returned. The class summaries are below." |
+| > 10 classes | classes 11+: "No AI summary: AI summaries cover the first 10 classes." |
+| 0 flagged pairs | no Notable / class sections (nothing to show), no Gemini request |
+| 1 flagged pair | Tier 2 skipped as before (fewer than 2 pairs); the class section still lists it |
+
+### 9.7 Tests
+
+| Check | Result |
+|---|---|
+| Build (each checkpoint + clean 1.2.0) | exit 0; no new warnings (`-Wall -Wextra` caught a `"\x01across"` hex-escape bug, fixed before commit); GUI subsystem; no MinGW DLLs |
+| Golden check after `0924c30`, `98ff059`, 1.2.0 | all three datasets byte-identical |
+| Pair-to-group correctness (copies of Programming1 and the four-block set, independent Python check against the manifest **and** each file's physical subfolder) | 705/705 and 27,991/27,991 pairs each in exactly one group; blocks correct; group rule correct; counts correct; score order kept |
+| Groups found | Programming1: 1 class (BSCS-7, 705). Four blocks: BSCS-3A 1,587 · 3B 1,874 · 3C 1,313 · 3D 2,152 · Across classes 21,065 |
+| Live Tier 2 (developer key, gemini-3.5-flash-lite) | 12 k-char prompt, exactly 50 pairs; all 5 class summaries returned in 2 of 2 runs after min/maxItems; cited pairs (#7, #85 for BSCS-3A) verified to belong to that class |
+| GUI, repo build, AI off | hierarchy renders; counts match the dump; rows #26/#34/#43/#81/#95 under BSCS-3B match the dump exactly; expand/collapse works; clicking #34 opens Flagged pair #34 FloresRowena ↔ MarquezJustine expanded |
+| GUI, AI on | overall findings + per-class summaries with working "Pair N" links; single-class run: no Notable cases, one open section |
+| AI failure / partial (dev-only build with a stub Gemini module, not shipped) | deterministic sections intact; per-class "unavailable" / "not returned" notes correct; "Pair 4" link in a class summary opens pair #4 |
+| Installed 1.2.0 (only-for-me, silent) | 13 files; version 1.2.0; AI run on Programming1 in the installed copy (no id leak after the prompt rule); zero-pair run shows no empty sections |
+| Uninstall / reinstall | program + shortcuts + simulated `%LOCALAPPDATA%\CALSS\Classroom` removed; imports, audit log, both credentials kept; reinstall works, same results |
+| Secrets | none in the exe |
+
+Test data created for this was deleted afterwards.
+
+**Not tested here:** another PC; a real Classroom-synced dataset with
+long course names (only subfolder-named blocks were available); more
+than 10 classes; keyboard-only navigation of the new rows (registered as
+focusables, not exercised); the all-users install of 1.2.0 (installer
+unchanged since 1.1.0).
+
+### 9.8 Limitations
+
+- The "Across classes" group can dominate when blocks are compared with
+  each other (21,065 of 27,991 in the synthetic four-block set); it is
+  shown as its own section rather than hidden.
+- A class's section lists its top 5; the full list is the Flagged pairs
+  tab, which has no class filter yet.
+- Gemini text quality varies by run and model; summaries are
+  explanatory only and can still be generic.
+- Students' class on the Classes tab is their *first* file's block,
+  while the Overview groups by each pair's *files*; they agree whenever
+  a student's files are all in one block (true for every dataset here).
+
+### 9.9 Artifacts
+
+| File | Size (bytes) | SHA-256 |
+|---|---:|---|
+| `release\CALSS_Setup_1.2.0.exe` | 3,717,529 | `C160D29B2C844F668CCD6838466C8EDE22958BC3575CDA01056D09061C3453EF` |
+| `authorship.exe` 1.2.0 | 4,772,435 | `1C231D8CF32253556E1EE65FA7618C3C29D53239A7F46BBAFC08609986363E11` |
