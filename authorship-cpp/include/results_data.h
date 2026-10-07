@@ -92,6 +92,7 @@ struct AIBatchPatterns {
     bool        success;
     std::string error;
     bool        skipped;
+    std::string model;   // Gemini model ID that produced the findings (on success)
 };
 
 struct StudentProfileSummary {

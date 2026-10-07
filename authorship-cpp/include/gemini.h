@@ -16,15 +16,43 @@
 // secret_store.h). Returns empty string if no key is configured.
 std::string loadApiKey();
 
-// AI settings dialog support: is a key stored / store one / remove it /
-// test one with a single no-quota request (error filled on failure;
-// *rejected set when Google answered and refused the key, as opposed
-// to Google being unreachable).
+// AI settings dialog support: is a key stored / store one / remove it.
 bool gemini_hasKey();
 bool gemini_saveKey(const std::string& key);
 bool gemini_removeKey();
-bool gemini_testKey(const std::string& apiKey, std::string& error,
-                    bool* rejected = nullptr);
+
+// ── Model discovery / selection (1.0.1) ───────────────────────
+// CALSS no longer hard-codes one model. It asks Google which models the
+// key's project can use (GET /v1beta/models, the official models.list
+// endpoint; free, generates nothing) and picks one by a small fixed
+// policy — see gemini.cpp, "MODEL SELECTION". The result is cached per
+// key for the session. All of this is thread-safe (the dialog checks on
+// its own worker thread, the analysis calls from the pipeline thread).
+struct GeminiModelInfo {
+    std::string id;           // API identifier, e.g. "gemini-3.5-flash-lite"
+    std::string displayName;  // Google's display name, e.g. "Gemini 3.5 Flash Lite"
+};
+
+struct GeminiKeyCheck {
+    bool reachable = false;   // Google answered at all
+    bool keyValid  = false;   // Google accepted the key (models.list = 200)
+    bool rejected  = false;   // Google answered and refused the key
+    std::string error;        // user-facing reason when !keyValid or no model
+    std::vector<GeminiModelInfo> models;  // compatible models, best first
+    std::string autoModel;    // what Automatic would use ("" = none)
+};
+
+// One models.list request. Never sends the key anywhere but Google, never
+// puts it in `error`. Also primes the selection cache for this key.
+GeminiKeyCheck gemini_checkKey(const std::string& apiKey);
+
+// Model preference: "" = Automatic (default), else an API identifier.
+// Stored in %LOCALAPPDATA%\CALSS\gemini_model.txt (not a secret).
+std::string gemini_getModelPreference();
+bool        gemini_setModelPreference(const std::string& modelId);
+
+// Model used by the most recent successful generation ("" if none yet).
+std::string gemini_lastModelUsed();
 
 // At most this many flagged pairs (the highest-scoring ones) are sent
 // to Gemini per run. A single section can flag hundreds of pairs, and

@@ -862,7 +862,9 @@ int drawAISummary(HDC hdc, int x, int y, int width) {
     SelectObject(hdc, g_hFontMonoSm);
     SetTextColor(hdc, GRAY_500);
     RECT sigRect = {itemX, sigY, x + width - S(30), sigY + S(18)};
-    std::wstring sig = L"Gemini 2.5 Flash Lite  \u00B7  CALSS AI Instructor";
+    // The model actually used (chosen at run time since 1.0.1).
+    std::wstring sig = (bp.model.empty() ? std::wstring(L"Gemini") : s2w(bp.model)) +
+                       L"  \u00B7  CALSS AI Instructor";
     // Say so when the findings cover only the top of the flagged list
     // (GEMINI_MAX_PAIRS cap), so they aren't read as covering every pair.
     if (r.aiPairsSent > 0 && r.aiPairsSent < (int)r.flaggedPairs.size())
