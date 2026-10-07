@@ -632,20 +632,22 @@ static void syncChooseConfirm(HWND hwnd) {
         for (auto& r : b.rows) if (r.checked) ++totalChecked;
     if (totalChecked == 0) return;
 
-    if (g_state.dataFolder.empty()) {
-        wchar_t docsPath[MAX_PATH] = {};
-        if (SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr,
-                              SHGFP_TYPE_CURRENT, docsPath) == S_OK)
-            g_state.dataFolder = std::wstring(docsPath) + L"\\CALSS_Classroom_Sync";
-        else
-            g_state.dataFolder = L"CALSS_Classroom_Sync";
+    // Classroom downloads always go to the app-owned working folder
+    // %LOCALAPPDATA%\CALSS\Classroom (see appClassroomDirU8), never into
+    // the folder the user happens to have loaded, Documents, or the
+    // install folder. The uninstaller deletes this folder.
+    std::wstring dest = widenUtf8(appClassroomDirU8());
+    if (dest.empty()) {
+        showToast(L"Couldn't create the Classroom download folder in "
+                  L"%LOCALAPPDATA%\\CALSS. Nothing was downloaded.", TOAST_ERROR);
+        return;
     }
 
     g_syncLogLines.clear();
     syncSheetSetState(SHEET_SYNCING);
 
     auto* blocksCopy = new std::vector<SyncBlockNode>(g_syncBlocks);
-    std::thread t(syncRunThread, hwnd, blocksCopy, g_state.dataFolder);
+    std::thread t(syncRunThread, hwnd, blocksCopy, dest);
     t.detach();
 }
 
@@ -776,8 +778,9 @@ static void drawSyncChooseState(HDC hdc, const RECT& rc, HWND hwnd) {
     SelectObject(hdc, g_hFontMonoSm);
     SetTextColor(hdc, GRAY_200);
     RECT destPath = {S(120), S(438), rc.right - S(20), S(458)};
-    std::wstring shown = truncateMiddle(hdc, g_state.dataFolder.empty()
-        ? L"Documents\\CALSS_Classroom_Sync" : g_state.dataFolder,
+    static const std::wstring classroomDir = widenUtf8(appClassroomDirU8());
+    std::wstring shown = truncateMiddle(hdc, classroomDir.empty()
+        ? L"%LOCALAPPDATA%\\CALSS\\Classroom" : classroomDir,
         (rc.right - S(20)) - S(120));
     DrawTextW(hdc, shown.c_str(), -1, &destPath, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 

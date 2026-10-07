@@ -44,4 +44,12 @@ std::string  appReportsDirU8();
 // File > Import .c Files copies the picked files. Same fallback.
 std::string  appImportsDirU8();
 
+// %LOCALAPPDATA%\CALSS\Classroom (UTF-8), created if missing: the only
+// place Google Classroom sync downloads submissions (plus their
+// calss_sync_manifest.jsonl). Per Windows user, private to that user by
+// the profile's default ACL, and deleted by the uninstaller. Unlike the
+// helpers above there is NO fallback to the exe's folder (that can be
+// Program Files): returns "" if the folder can't be resolved or created.
+std::string  appClassroomDirU8();
+
 #endif // APP_PATHS_H

@@ -16,9 +16,11 @@
 ;   - All-users install also prepares %PROGRAMDATA%\CALSS\audit.log so
 ;     every Windows user can APPEND to it (and nothing more) — see
 ;     PrepareAuditLog below.
-;   - Uninstall removes the program and its shortcuts only. Reports,
-;     imports, the audit log, per-user settings and saved sign-ins
-;     (Credential Manager) are kept.
+;   - Uninstall removes the program, its shortcuts and the Google
+;     Classroom working copies in %LOCALAPPDATA%\CALSS\Classroom (of the
+;     Windows account running the uninstaller). Reports, imports, the
+;     audit log, other per-user settings and saved sign-ins (Credential
+;     Manager) are kept.
 ; ─────────────────────────────────────────────────────────────
 
 #define Root        ".."
@@ -66,6 +68,10 @@ SolidCompression=yes
 ; Close a running CALSS before replacing or removing its files.
 CloseApplications=yes
 RestartApplications=no
+; {localappdata} is used on purpose in an all-users install: the
+; uninstaller deletes the Classroom working folder of the account that
+; runs it (see [UninstallDelete]).
+UsedUserAreasWarning=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -90,6 +96,13 @@ Name: "{autodesktop}\CALSS";  Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; 
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,CALSS}"; Flags: nowait postinstall skipifsilent
+
+[UninstallDelete]
+; Google Classroom working copies (downloaded submissions + their
+; calss_sync_manifest.jsonl) are application-managed and go away with
+; the app. ONLY this subfolder: %LOCALAPPDATA%\CALSS itself also holds
+; settings and is left alone.
+Type: filesandordirs; Name: "{localappdata}\CALSS\Classroom"
 
 [Code]
 // %PROGRAMDATA%\CALSS\audit.log on a shared PC.
@@ -133,9 +146,11 @@ begin
   if CurUninstallStep = usPostUninstall then
     SuppressibleMsgBox(
       'CALSS has been removed.' + #13#10 + #13#10 +
+      'Deleted: the Google Classroom submissions CALSS downloaded for this' + #13#10 +
+      'Windows account (' + ExpandConstant('{localappdata}') + '\CALSS\Classroom).' + #13#10 + #13#10 +
       'Kept on purpose (delete them yourself if you no longer need them):' + #13#10 +
       '  - Documents\CALSS Reports  (similarity reports)' + #13#10 +
-      '  - Documents\CALSS Imports and CALSS_Classroom_Sync  (copied submissions)' + #13#10 +
+      '  - Documents\CALSS Imports  (files you imported)' + #13#10 +
       '  - ' + ExpandConstant('{commonappdata}') + '\CALSS\audit.log  (audit record)' + #13#10 +
       '  - Your saved Gemini key and Google sign-in (Windows Credential Manager,' + #13#10 +
       '    entries starting with "CALSS/").',

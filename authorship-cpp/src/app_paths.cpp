@@ -76,3 +76,17 @@ std::string appReportsDirU8() {
 std::string appImportsDirU8() {
     return knownSubdirU8(CSIDL_PERSONAL, L"CALSS Imports");
 }
+
+std::string appClassroomDirU8() {
+    wchar_t base[MAX_PATH];
+    if (SHGetFolderPathW(nullptr, CSIDL_LOCAL_APPDATA, nullptr, SHGFP_TYPE_CURRENT, base) != S_OK)
+        return "";
+    std::wstring dir = std::wstring(base) + L"\\CALSS";
+    CreateDirectoryW(dir.c_str(), nullptr);  // no-op if it already exists
+    dir += L"\\Classroom";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    DWORD attr = GetFileAttributesW(dir.c_str());
+    if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY))
+        return "";
+    return utf8FromWide(dir);
+}
