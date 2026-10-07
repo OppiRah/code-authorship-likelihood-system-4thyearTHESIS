@@ -11,8 +11,9 @@ coding style (14 stylometric features, KNN with K=3), then lists the
 pairs worth a closer look. It is a decision aid: a flagged pair is a
 reason to look, not proof of plagiarism.
 
-THIS IS A TEST BUILD for thesis-team testing only. It is not the final
-release and there is no installer yet.
+THIS IS THE PORTABLE TEST BUILD for thesis-team testing (no install
+step). The normal way to install CALSS is the installer,
+CALSS_Setup_<version>.exe.
 
 
 REQUIREMENTS

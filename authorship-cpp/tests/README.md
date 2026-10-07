@@ -84,7 +84,8 @@ account or a second PC; everything else needs only the repo.
 4. **Non-ASCII path:** copy `../stress_test_bscs7/Programming1` to a
    folder named `Peña` and load it: same file count and, after analysis,
    the same headline numbers as the original (2,186 pairs, 705 flagged).
-5. Import files: pick two `.c` files; they are copied in and a toast shows.
+5. Import files: pick two `.c` files; they are copied to
+   `Documents\CALSS Imports` and a toast shows.
 
 **B. Analysis, AI off**
 

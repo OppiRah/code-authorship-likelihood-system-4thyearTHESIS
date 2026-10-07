@@ -1,7 +1,9 @@
-# CALSS Release Readiness — Phase 4 (2026-10-02)
+# CALSS Release Readiness — Phase 4 (2026-10-02), Phase 5 (2026-10-07)
 
-Status of branch `optimization-pass` as a release candidate, written as
-the input for Phase 5 (installer). Nothing here implements packaging.
+Status of branch `optimization-pass` as a release candidate. §1–§5 were
+written in Phase 4 as the input for the installer; §6 is the portable
+test package; **§7 is the Phase 5 installer (CALSS 1.0.0)** and is the
+current state wherever it differs from the earlier sections.
 
 ## 1. What a release consists of
 
@@ -57,7 +59,8 @@ directory, so a shortcut's "Start in" or a file dialog can't break them.
 4. **Google OAuth consent screen.** If the Cloud project is in "Testing"
    mode, only accounts on its test-user list can sign in, and their tokens
    expire after 7 days. External configuration, not code.
-5. **Audit log on shared PCs.** `%PROGRAMDATA%\CALSS\audit.log` is created
+5. **Audit log on shared PCs.** *Fixed in Phase 5 for all-users
+   installs (§7.4).* `%PROGRAMDATA%\CALSS\audit.log` is created
    by whichever Windows user runs CALSS first; on default ACLs other
    standard users may only be able to read it, and their audit entries are
    then silently dropped. Single-user PCs are unaffected. Relevant to how
@@ -69,7 +72,7 @@ directory, so a shortcut's "Start in" or a file dialog can't break them.
    (~2 ms per card) and makes the View source scroll glide choppy;
    deferred as fix D (needs visual sign-off). See
    `docs/SOURCE_VIEW_AND_SCALE_WORK_LOG.md`.
-8. **No application icon.** The exe uses the generic Windows icon
+8. **No application icon.** *Fixed in Phase 5 (§7.1).* The exe used the generic Windows icon
    (`ulccslogo.ico` exists but no resource script is compiled). Natural
    to add with the installer.
 9. **Two "High" counts.** Overview "High similarity" (label-based, all
@@ -147,6 +150,12 @@ Credential Manager, GUI analysis + CSV + report end to end, Peña path in
 the GUI, Classroom sign-in with an approved test-user account. Checklist:
 `release_docs/TESTER_CHECKLIST.txt` (ships in the package).
 
+**Result (recorded 2026-10-07):** the developer reports that the thesis
+mates' cross-PC testing of this package completed successfully and that
+the package gate is passed, including ordinary execution on their PCs.
+That is a user-reported overall result; the filled-in checklists are not
+in the repository, so no individual item above is marked passed here.
+
 **Noted, not changed (not packaging blockers):**
 - Help > About still reads "Version 0.4.0 (Proposal Prototype)"
   (`gui.cpp`); README tells testers it's known.
@@ -157,3 +166,233 @@ the GUI, Classroom sign-in with an approved test-user account. Checklist:
   look flat in non-Windows unzip tools.
 - Known issues 1–9 in §3 are unchanged; the OAuth app stays External /
   Testing (only listed test users can sign in; ~7-day token expiry).
+
+## 7. Phase 5 — installer, CALSS 1.0.0 (2026-10-07)
+
+Branch `optimization-pass`. Commits: `87b4ee7` (icon, manifest, version
+resource), `02ff912` (Import .c files location), `a074b64` (append-only
+audit log), `6002355` (installer), then this documentation. No scoring,
+tokenizer, feature, KNN, threshold, parsing or Gemini-prompt code was
+touched; the golden check was byte-identical after every source commit.
+
+### 7.1 Executable
+
+| Item | Result |
+|---|---|
+| Version | **1.0.0 "Thesis Release"** — first installer release; a conservative 1.0 with no pre-release tags. Single source: `include/version.h`, read by Help > About, the exe's VERSIONINFO and (through the exe) the installer. Replaces the stale "0.4.0 (Proposal Prototype)"; About now also uses the full product name "Code Authorship Likelihood Scoring System". |
+| Resources | `res/calss.rc` → `calss_res.o` (windres, first step of `compile.bat`): icon, manifest, VERSIONINFO. |
+| Version info | ProductName "CALSS"; FileDescription "CALSS - Code Authorship Likelihood Scoring System"; FileVersion 1.0.0; ProductVersion "1.0.0 (Thesis Release)"; CompanyName "CALSS thesis team, College of Computer Studies, University of Luzon" (attribution, as in the in-app About text — no copyright or ownership line is claimed); OriginalFilename authorship.exe. |
+| Icon | `ulccslogo.ico` was a PNG renamed `.ico` (not usable as a resource). Now a real 9-size ICO (16–256 px) built by `tools/make_icon.py` from the in-app seal `ulccslogo.png`, placed on a rounded tile in the app background colour (GRAY_950) because the white mark disappears on light Explorer backgrounds. Used for the exe, the main window class (taskbar/Alt+Tab), shortcuts, the installer and Add/Remove Programs. |
+| Manifest | `res/calss.manifest`: `asInvoker` (never elevates) and `supportedOS` Windows 7–11. **Common Controls v6 deliberately not enabled:** themed v6 push buttons and checkboxes ignore `WM_CTLCOLORBTN`/`WM_CTLCOLORSTATIC`, which the sidebar uses for the maroon "Run analysis" button and the light-on-dark "Include AI summary" label — v6 would turn them stock grey / dark-on-dark. **DPI not declared:** `runGUI()` already sets Per-Monitor-V2 before any window exists and derives `g_dpiScale` from the same call; a manifest entry would be redundant on Windows 10 1703+. Screenshots after the change show the GUI unchanged. |
+
+### 7.2 Build verification (dev PC, Windows 11 26200, g++ 16.1.0)
+
+- `compile.bat` clean build (old exe and `calss_res.o` removed first):
+  exit 0, no warnings. Still `-static -mwindows`.
+- PE: Subsystem 2 (Windows GUI). Imports: ADVAPI32, COMCTL32, comdlg32,
+  GDI32, gdiplus, KERNEL32, MSIMG32, ole32, SHELL32, USER32, WINHTTP,
+  WS2_32 + `api-ms-win-crt-*`. No libwinpthread/libstdc++/libgcc.
+- Manifest present with `asInvoker`; no Common-Controls dependency;
+  version strings read back through Windows' `VersionInfo`.
+- `tests\run_golden.bat`: **all three datasets byte-identical** after
+  each of `87b4ee7`, `02ff912`, `a074b64`.
+- Final `authorship.exe`: 4,501,119 bytes, SHA-256
+  `908851FA06C995858DB555D6FCCAAE2CA22EC506609666C06F6081B2BAB095CD`.
+
+### 7.3 Installer technology: Inno Setup 6
+
+Chosen over NSIS, WiX/MSI and MSIX because it is the simplest tool that
+covers everything CALSS needs: one declarative script
+(`installer/calss.iss`), a built-in uninstaller and Add/Remove Programs
+entry, Start Menu/Desktop shortcuts, per-machine *or* per-user install
+from the same file, a small Pascal hook for the audit-log step, nothing
+installed on the user's PC besides CALSS, free, widely used and well
+documented. WiX/MSI and MSIX are heavier (MSIX also needs signing to
+install at all); NSIS needs more hand-written script for the same
+result.
+
+Built with Inno Setup 6.7 (already installed on the dev PC, per-user,
+signed by its publisher Pyrsys B.V.); the script needs 6.4+. Build:
+`compile.bat`, then `make_installer.bat` → `release\CALSS_Setup_1.0.0.exe`
++ `release\CALSS_Setup_1.0.0_SHA256.txt`. The script reads version,
+description and publisher from the exe. Two builds of the same commit
+gave the same installer hash.
+
+### 7.4 Install layout, shortcuts, audit log
+
+- **Mode:** default *all users* → `C:\Program Files\CALSS` (64-bit,
+  Windows 10+); Setup asks for admin once. The installer's own dialog
+  also offers *only for me* → `%LOCALAPPDATA%\Programs\CALSS`, no admin
+  (for lab PCs where professors are not administrators). CALSS itself
+  runs as the normal user in both cases (verified: token not elevated).
+- **Installed files (13, plus Inno's `unins000.exe`/`unins000.dat`):**
+  ```
+  CALSS\
+    authorship.exe
+    ulccslogo.png
+    ulcclogoloadingscreen.png
+    calss_gc_embedded_credentials.json   (the app's OAuth client id, §1)
+    assets\help\calss_help_01 … 09 .png
+  ```
+  Nothing else: no source, objects, datasets, docs, keys, tokens or
+  logs. The `[Files]` list names each file; the build refuses to run
+  without the exe's version resource or the OAuth client file.
+- **Shortcuts:** Start Menu "CALSS" (all users: ProgramData Start Menu;
+  only for me: the user's). Desktop "CALSS" as an installer task, ticked
+  by default (Public Desktop / user Desktop). Both use the exe's icon
+  and Start in = install folder; the app does not depend on the working
+  directory (resources from the exe folder, writes to known folders).
+- **Import .c files fix (`02ff912`):** found during this phase — the
+  import copied files to `imported_data` *relative to the working
+  directory*. That worked from the portable ZIP but fails from an
+  installed shortcut (read-only Program Files). Now
+  `Documents\CALSS Imports`. §2's "Read-only locations: none written"
+  was therefore not true for imports before this fix.
+- **Audit log on shared PCs (known issue 5):**
+  - *Cause, confirmed on this PC:* `audit_log.cpp` creates
+    `%PROGRAMDATA%\CALSS` and `audit.log` on first use. The folder
+    inherits ProgramData's ACL (Users: read + create files); the file
+    gets creator full control + Users `(RX)`. `std::ofstream(ios::app)`
+    asks for full write access, so any other Windows user's open failed
+    and `audit_log()` silently returned.
+  - *Fix:* CALSS opens the log with `FILE_APPEND_DATA` only (`a074b64`),
+    same CRLF format. The all-users installer pre-creates the folder
+    and file and grants `BUILTIN\Users` (by SID `S-1-5-32-545`) **Read +
+    Append Data on audit.log only**. No user can overwrite, truncate,
+    delete or re-permission the log (deleting needs DELETE on the file or
+    delete-child on the folder; Users have neither). The folder keeps
+    ProgramData's defaults; Administrators and SYSTEM keep full control.
+  - *Evidence:* ACL after install: `BUILTIN\Users:(R,AD)` added. With a
+    test file whose DACL gives the caller only `(R,AD)`: the old
+    ofstream append fails; the new append-only open writes; truncate
+    and delete are denied. A real second Windows account was **not**
+    tested (none on this PC; creating one is an account action).
+  - *Not covered:* an *only-for-me* install cannot change ProgramData
+    ACLs (no admin); on a shared PC use the all-users install. CALSS is
+    never run as administrator to work around this.
+
+### 7.5 Data CALSS stores outside its install folder
+
+| Data | Location | Created by | Purpose | Remove on uninstall? | Reason |
+|---|---|---|---|---|---|
+| Program files | install folder | installer | the program | **Yes** | binaries only |
+| Shortcuts, Add/Remove entry | Start Menu, Desktop, registry Uninstall key | installer | launching / uninstalling | **Yes** | installer-owned |
+| Gemini API key | Credential Manager `CALSS/GeminiApiKey` (per Windows user) | app, File > AI Settings > Save | AI summaries | No | the user's own secret, per user; the uninstaller runs as one account only. Remove beforehand with AI Settings > *Remove saved key*, or `cmdkey /delete:CALSS/GeminiApiKey` |
+| Google Classroom token | Credential Manager `CALSS/GoogleClassroomToken` (per user) | app, after Classroom sign-in | Classroom sync | No | same reason; there is no in-app sign-out button. Remove with `cmdkey /delete:CALSS/GoogleClassroomToken` (and revoke at myaccount.google.com → Security → third-party access) |
+| Classroom settings | `%LOCALAPPDATA%\CALSS\calss_gc_settings.json` (per user) | app | cached copy of the app's OAuth client config | No | not personal, regenerated; per user (same account limitation) |
+| Audit log | `%PROGRAMDATA%\CALSS\audit.log` | installer (all users) or app | academic-integrity audit trail | **No** | evidence record |
+| Similarity reports | `Documents\CALSS Reports` | app | per-student HTML reports | **No** | user documents |
+| Imported submissions | `Documents\CALSS Imports` | app, File > Import | copies of the picked `.c` files | **No** | student data the user chose to import |
+| Classroom downloads | `Documents\CALSS_Classroom_Sync` (default) or the chosen data folder | app, sync | downloaded submissions | **No** | student data |
+| Sync manifest | `calss_sync_manifest.jsonl` inside each analyzed folder | app | block/title tags | **No** | lives in the user's data |
+| CSV exports | wherever the user saves | app | flagged-pair export | **No** | user documents |
+| Fallback audit log | `calss_audit.log` in the working folder | app | only if ProgramData can't be resolved (not observed) | No | — |
+
+### 7.6 Uninstall policy
+
+Uninstall removes the program files, the shortcuts and the Add/Remove
+entry, nothing else, and then lists what it kept (reports, imports /
+Classroom downloads, the audit log, saved sign-ins). Nothing marked "No"
+in the table above is deleted, so a reinstall continues with the same
+key, sign-in and audit trail. Credentials are not deleted because (a)
+they belong to a Windows user, and an elevated uninstaller may run as a
+different (admin) account than the professor's, so it could not do this
+reliably anyway, and (b) silently deleting them is not expected
+uninstall behaviour. The removal commands are listed above.
+
+### 7.7 Signing, SmartScreen, checksums
+
+The installer and the exe are **not code-signed** (no certificate; none
+was bought or configured). Windows SmartScreen or the browser may
+therefore warn ("Windows protected your PC", "not commonly downloaded"),
+because an unsigned file carries no publisher identity or reputation.
+That is expected; do not disable SmartScreen or Defender. Users should
+only choose "More info → Run anyway" after checking the SHA-256 against
+the value published with the official distribution (the thesis team's
+shared Drive folder, next to the installer):
+
+| File | Size (bytes) | SHA-256 |
+|---|---:|---|
+| `CALSS_Setup_1.0.0.exe` | 3,657,335 | `C301FFCF0AD811D28F465A3DF8F1980FA92D44F669F2FA372E93FC521D6FBBFF` |
+| `authorship.exe` (inside) | 4,501,119 | `908851FA06C995858DB555D6FCCAAE2CA22EC506609666C06F6081B2BAB095CD` |
+| `CALSS_SampleData_SYNTHETIC.zip` | 563,768 | `534D30B92CC79B04032B8DE555EF0EFC53E59276D771F8FF2DDAEEEC0949B263` |
+
+`make_installer.bat` writes the first two into
+`CALSS_Setup_1.0.0_SHA256.txt`. Check with
+`Get-FileHash .\CALSS_Setup_1.0.0.exe -Algorithm SHA256`. The
+2026-10-05 portable ZIP is superseded by the installer (its exe has no
+icon, the 0.4.0 About text and the old import path).
+
+### 7.8 Tests
+
+**Automated (dev PC):** clean build; import table; subsystem; manifest
+and version resource; golden check ×3 (byte-identical); append-only ACL
+mechanism test; reproducible installer build.
+
+**Same-machine clean-install test** (dev PC, starting with CALSS not
+installed; driven by scripts that launch the shortcut and operate the
+folder picker, buttons, tabs and Save/Open dialogs):
+
+| # | Check | Only for me (silent) | All users (UAC approved by the developer) |
+|---|---|---|---|
+| 1–4 | Not installed before; installs; folder; exactly the 13 files + uninstaller | pass | pass |
+| 5–6 | Start Menu / Desktop shortcut, exe icon, Start in = app folder | pass | pass (ProgramData Start Menu, Public Desktop) |
+| 7–8 | Launch via shortcut; no console (no child process, GUI subsystem); only Windows DLLs loaded | pass | pass; process not elevated |
+| 9 | Seal PNG loads from the install folder | pass | pass |
+| 10 | Icon embedded and used by exe, shortcuts, installer | pass (extracted and rendered; taskbar not screen-captured) | — |
+| 11 | About = "Version 1.0.0 (Thesis Release)" | pass (repo build of the same source) | — |
+| 12–13, 19 | Folder picker → `C:\Users\…\CALSS Peña Test\Programming1`: 553 files; analysis (AI off): **705 of 2,186 flagged**, 35 students | pass | pass |
+| 14 | Classes list → student detail | pass | — |
+| 15–16 | Flagged pairs list, expand #1, View source (file read from the Peña path) | pass | — |
+| 17 | Export CSV into the Peña folder: header + 2,186 rows | pass | — |
+| 18 | Generate Similarity Report → `Documents\CALSS Reports\…html` | pass | — |
+| — | File > Import .c Files → `Documents\CALSS Imports`, success toast | pass | — |
+| 20–21 | Restart via Desktop shortcut; saved Gemini key recognised | pass | — |
+| 22 | Nothing written into the install folder; no VirtualStore copy | pass | pass |
+| 23 | Audit entries appended (folder, analysis, report) | pass | pass (+422 bytes) |
+| 24 | Credential Manager entries read and kept | pass | pass |
+| 25–27 | Uninstall: files, shortcuts, uninstall key gone; reports, imports, audit log (and its ACL), credentials kept; message shown | pass | pass (message text in the uninstall log) |
+| 28–29 | Reinstall → same exe hash, analysis 705/2,186 again | pass | not repeated |
+
+The test data created for this (Peña dataset copy, test report, test
+import) was deleted afterwards; the audit entries remain (the log is
+append-only by design).
+
+**User-reported:** the portable-package cross-PC gate (§6).
+
+**Not tested here:** another PC; Windows 10; a second Windows account
+(shared-PC audit log end to end); an empty Credential Manager / first
+run without a Gemini key; Gemini calls; Classroom sign-in; SmartScreen
+(a locally built file has no download mark); the wizard pages
+interactively (silent modes were used); the Help > Documentation
+carousel in the installed copy; upgrading over an older CALSS install
+(none exists).
+
+### 7.9 Remaining known limitations
+
+Known issues 1–4, 6, 7 and 9 in §3 are unchanged (manifest re-read
+performance, WinHTTP proxy, fixed OAuth port 8080, OAuth app in Testing
+/ test users only, Classroom HTTP timeouts, `drawCard` paint cost, two
+"High" counts). Also: the build is unsigned; the only-for-me install
+does not fix the shared-PC audit log; credentials survive uninstall by
+design; there is no Classroom sign-out button; if fetching courses
+fails after sign-in, the Choose screen shows an empty tree; the sync
+sheet does not try the refresh token before browser sign-in. The Google
+Classroom configuration is unchanged (External / Testing, same client,
+same scopes). Thesis items T-1/T-2 (§4) remain paper work.
+
+### 7.10 Final cross-PC installer test
+
+Send each tester (via the Drive folder):
+`release\CALSS_Setup_1.0.0.exe`, `release\CALSS_Setup_1.0.0_SHA256.txt`,
+`release\CALSS_SampleData_SYNTHETIC.zip` and
+`release_docs\INSTALLER_TEST_CHECKLIST.txt`. Not the portable ZIP, not
+`calss_gc_embedded_credentials.json` on its own (it is inside the
+installer), nothing from the repository.
+
+They run the 24 checklist items (hash check, SmartScreen notes,
+all-users install, first run, Peña analysis 705/2,186, report/CSV/import,
+optional Gemini/Classroom, second-account audit log if possible,
+uninstall, reinstall) and send the checklist back. Phase 5 is complete
+when at least one non-developer PC passes items 1–18 and 22–24, with no
+FAIL left unexplained.

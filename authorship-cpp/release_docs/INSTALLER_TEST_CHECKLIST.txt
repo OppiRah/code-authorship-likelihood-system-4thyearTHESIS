@@ -1,0 +1,113 @@
+﻿CALSS 1.0.0 - INSTALLER TEST CHECKLIST (thesis team)
+=====================================================================
+
+You received:
+  CALSS_Setup_1.0.0.exe            the installer
+  CALSS_Setup_1.0.0_SHA256.txt     its checksum
+  CALSS_SampleData_SYNTHETIC.zip   synthetic test submissions
+  INSTALLER_TEST_CHECKLIST.txt     this file
+
+Use your own Windows 10/11 PC, NOT the developer's. If you tested the
+portable ZIP before, delete that extracted CALSS folder first (your
+saved Gemini key / Google sign-in can stay).
+
+Write PASS / FAIL / SKIPPED next to each item, plus a note or a
+screenshot for every FAIL, and send the file back.
+
+
+BEFORE INSTALLING
+-----------------
+ 1. Check the download is the official build. In PowerShell, in the
+    folder with the installer:
+        Get-FileHash .\CALSS_Setup_1.0.0.exe -Algorithm SHA256
+    The hash must equal the first line of CALSS_Setup_1.0.0_SHA256.txt.
+    If it doesn't match, STOP and tell the developer.         ______
+
+ 2. Windows may warn about the download or show "Windows protected
+    your PC" (SmartScreen). That happens because the installer is not
+    code-signed (a thesis build has no paid signing certificate). It
+    is expected. Only if step 1 matched: click "More info" ->
+    "Run anyway". Write down exactly which warnings you saw:
+    ____________________________________________________________
+
+
+INSTALL
+-------
+ 3. Run the installer. It asks "Install for all users" (needs an admin
+    password once) or "Install for me only" (no admin). Pick ALL USERS
+    if you can; note which one you used: ________          ______
+ 4. Wizard shows the CALSS icon, "CALSS 1.0.0", install folder
+    C:\Program Files\CALSS (all users) or
+    ...\AppData\Local\Programs\CALSS (me only). Leave "Create a
+    desktop shortcut" ticked. Finish installing.           ______
+ 5. Start Menu has "CALSS"; Desktop has "CALSS"; both show the CALSS
+    icon (dark square, white C-L-S mark).                  ______
+ 6. Settings > Apps > Installed apps lists "CALSS 1.0.0".  ______
+
+
+FIRST RUN
+---------
+ 7. Start CALSS from the Start Menu. No black console window opens,
+    no admin prompt appears, the loading screen and sidebar show the
+    seal, and the taskbar button shows the CALSS icon.     ______
+ 8. Help > About says "Version 1.0.0 (Thesis Release)".    ______
+ 9. Help > Documentation shows the picture guide.          ______
+10. If you never saved a Gemini key on this Windows account:
+    "Include AI summary" is unticked and greyed, with a "Set up AI..."
+    link. (If you saved one during the ZIP test, write "had key".)
+                                                           ______
+
+
+LOCAL ANALYSIS (no internet needed)
+-----------------------------------
+11. Create a folder named "Peña Test" (with the n-tilde) in Documents
+    and extract CALSS_SampleData_SYNTHETIC.zip into it.
+12. Select folder -> ...\Peña Test\CALSS_SampleData_SYNTHETIC\Programming1.
+    Sidebar shows 553 files.                               ______
+13. Untick "Include AI summary", Run analysis. Overview says
+    "705 of 2,186 pairs flagged for review".               ______
+14. Classes tab lists 35 students; open one; "Generate Similarity
+    Report" opens a report in the browser, and the file is in
+    Documents\CALSS Reports.                               ______
+15. Flagged pairs tab: expand pair #1, "View source" shows the code.
+                                                           ______
+16. Flagged pairs > Export CSV: save it; it opens in Excel.  ______
+17. File > Import .c Files: pick 2 .c files. A success message shows
+    and the files are copied to Documents\CALSS Imports.   ______
+18. Close CALSS, open it again from the Desktop shortcut: it starts
+    normally.                                              ______
+
+
+OPTIONAL ONLINE CHECKS
+----------------------
+19. File > AI Settings: paste YOUR OWN Gemini key, Save (it is tested
+    first). Run analysis with AI ticked: an AI summary appears.
+                                                ______ / SKIPPED
+20. Sync Google Classroom with an account on the app's test-user list:
+    sign-in completes in the browser and your courses appear.
+    (Accounts not on the list cannot sign in - that is expected while
+    the Google app is in "Testing".)            ______ / SKIPPED
+
+
+SHARED-PC AUDIT LOG (only if the PC has a second Windows account and
+you installed for ALL USERS)
+----------------------------------------------------------------------
+21. Sign in as the OTHER Windows user, run CALSS, load the sample
+    folder. Then, as either user, View > Audit Log (or open
+    C:\ProgramData\CALSS\audit.log in Notepad): the other user's
+    "FOLDER SELECTED" entry is there.          ______ / SKIPPED
+
+
+UNINSTALL AND REINSTALL
+-----------------------
+22. Settings > Apps > CALSS > Uninstall. A message lists what was kept.
+    Afterwards: no Start Menu / Desktop shortcut, the CALSS install
+    folder is gone.                                        ______
+23. Still present (kept on purpose): Documents\CALSS Reports,
+    Documents\CALSS Imports, C:\ProgramData\CALSS\audit.log.  ______
+24. Run the installer again, start CALSS, repeat step 13.  ______
+
+
+Your PC: Windows 10 / 11 (edition + version from Settings > System >
+About): ______________________   Antivirus: ____________________
+Tester: ____________________   Date: ____________
