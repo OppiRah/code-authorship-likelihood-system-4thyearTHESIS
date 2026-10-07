@@ -3310,6 +3310,8 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
                 handleStudentsDetailMouseMove(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
                 handleStudentsGridMouseMove(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
             }
+            if (g_currentPage == PAGE_OVERVIEW && g_state.analysisComplete && g_appModal.kind == MODAL_NONE)
+                handleOverviewMouseMove(hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
 
             // Empty-state option card hover (spec §5.3: lift to
             // gray-800 with a gold-400 border, 120ms).
@@ -3343,6 +3345,7 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
 
         case WM_MOUSELEAVE:
             clearStudentsGridHover(hwnd);
+            clearOverviewHover(hwnd);
             if (g_dnaHoveredCell != -1) {
                 g_dnaHoveredCell = -1;
                 InvalidateRect(hwnd, nullptr, FALSE);
@@ -4084,6 +4087,10 @@ static void activateFocused() {
             jumpToFlaggedPair(g_hContent, item->dataIndex);
             break;
 
+        case FocusKind::OverviewGroupToggle:
+            toggleOverviewGroup(g_hContent, item->dataIndex);
+            break;
+
         case FocusKind::LangNoticeToggle:
             g_langNoticeExpanded = !g_langNoticeExpanded;
             InvalidateRect(g_hContent, nullptr, FALSE);
@@ -4447,6 +4454,7 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg,
                 delete msg;
             }
             invalidateStudentsTabCache(); // new results — Classes cache is per run
+            resetOverviewGroups();        // Overview class sections back to default open/closed
             g_state.analysisRunning  = false;
             g_state.analysisComplete = true;
             g_animRunning = false;

@@ -808,6 +808,8 @@ static std::string buildOverviewPrompt(
               "and short (overall findings at most 2 sentences, class "
               "summaries 1-2 sentences). Do not repeat the class name or its "
               "flagged-pair count -- CALSS shows them next to your text.\n";
+    prompt << "- In the text itself, refer to a class only by its name, never "
+              "by its id (G1, G2, ...); the ids are only for the id field.\n";
     prompt << "- Plain professional language. No markdown, no headers, no "
               "bullet characters.\n\n";
 

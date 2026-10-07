@@ -405,6 +405,7 @@ enum class FocusKind {
     BlockChip, SeverityChip, ClearFilterBtn,
     StudentCard, BackButton, ReportButton, FlaggedAppearanceRow,
     UnclassifiedAssign, UnclassifiedDelete, AISummaryLink, LangNoticeToggle,
+    OverviewGroupToggle, // dataIndex = index into flaggedGroups (1.2.0)
     CollapsedPairRow, ExpandedPairHeader, ShowAllFeaturesToggle, CopyFindingsBtn,
     EmptyStateCard, CancelAnalysisBtn,
     DropdownAnchor,  // dataIndex = DropdownId; activates = opens it
@@ -792,6 +793,11 @@ void helpCarouselPrev();
 void helpCarouselSkip();
 void openHelpCarousel();
 int drawAISummary(HDC hdc, int x, int y, int width);
+// Overview class sections (1.2.0, gui_overview.cpp)
+void resetOverviewGroups();                 // new results: default open/closed state
+void toggleOverviewGroup(HWND hwnd, int groupIdx);
+void handleOverviewMouseMove(HWND hwnd, int mx, int my);
+void clearOverviewHover(HWND hwnd);
 int drawStatsDashboard(HDC hdc, int x, int y, int width);
 // Checkpoint 1 of the ContentProc split (see CLAUDE.md backlog):
 int drawResultsHeader(HDC hdc, int x, int y, int width);

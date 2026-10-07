@@ -734,14 +734,16 @@ static int drawAiSetupLink(HDC hdc, int x, int y) {
     return S(22);
 }
 
-// Draw the AI summary box
-int drawAISummary(HDC hdc, int x, int y, int width) {
+// The overall part of the AI summary (up to 1.1.0 this was the whole
+// AI section): eyebrow, the no-key / skipped / failed states, or the
+// numbered overall findings with their "Pair N" links and the model
+// signature. The class-by-class part follows in drawAISummary below.
+static int drawAIOverall(HDC hdc, int x, int y, int width) {
     int startY = y;
     const AnalysisResults& r = g_analysisResults;
     const AIBatchPatterns& bp = r.aiBatchPatterns;
 
     SetBkMode(hdc, TRANSPARENT);
-    g_aiSummaryLinkRects.clear();
 
     HFONT oldFont = (HFONT)SelectObject(hdc, g_hFontLabel);
     y += drawEyebrow(hdc, x + S(30), y, width - S(60), L"AI INSTRUCTOR SUMMARY");
@@ -830,6 +832,17 @@ int drawAISummary(HDC hdc, int x, int y, int width) {
     // itself is the shared measure/draw helper, so this pass and the real
     // draw pass below can never disagree about height or line breaks.
     int findingsH = 0;
+    // Gemini returned class summaries but no overall text (1.2.0).
+    static const std::wstring noOverall =
+        L"No overall summary was returned. The class summaries are below.";
+    if (bp.findings.empty()) {
+        RECT m = {itemX, 0, itemX + itemMaxWidth, 0};
+        DrawTextW(hdc, noOverall.c_str(), -1, &m, DT_LEFT | DT_WORDBREAK | DT_CALCRECT);
+        findingsH = m.bottom - m.top;
+        SetTextColor(hdc, GRAY_400);
+        RECT t = {itemX, y, itemX + itemMaxWidth, y + findingsH};
+        DrawTextW(hdc, noOverall.c_str(), -1, &t, DT_LEFT | DT_WORDBREAK);
+    }
     for (size_t i = 0; i < bp.findings.size(); ++i) {
         std::wstring item = s2w(bp.findings[i]);
         auto matches = findAllPairLinks(item);
@@ -882,6 +895,321 @@ int drawAISummary(HDC hdc, int x, int y, int width) {
     y = sigY + S(18) + S(32);
     SelectObject(hdc, oldFont);
     return y - startY;
+}
+
+// ─────────────────────────────────────────────────────────────
+// AI summary organized by class (1.2.0)
+//
+// Professor feedback: "It would also be helpful if the analyses could
+// be organized by subject or class." Below the overall findings the
+// Overview now shows, from CALSS's own results:
+//   NOTABLE CASES            the top flagged pairs across all classes
+//                            (flaggedPairs order = combined score; only
+//                            when there are 2+ classes, else it would
+//                            repeat the single class's list)
+//   FLAGGED PAIRS BY CLASS   one collapsible section per FlaggedPairGroup
+//                            with its CALSS count, the optional Gemini
+//                            summary for that class, and its top pairs
+// Class names, counts, scores, order and membership all come from
+// g_analysisResults.flaggedGroups / flaggedPairs; Gemini only supplies
+// FlaggedPairGroup::aiSummary. Every pair row is a link into the
+// existing Flagged Pairs detail (jumpToFlaggedPair), like the "Pair N"
+// links in the findings. Expanding/collapsing only changes what is
+// drawn: no analysis, no network.
+// ─────────────────────────────────────────────────────────────
+
+static const size_t OVERVIEW_PAIRS_PER_CLASS = 5;
+static const size_t OVERVIEW_NOTABLE_CASES   = 5;
+
+struct OverviewGroupRect { RECT r; int groupIdx; };
+static std::vector<OverviewGroupRect> g_overviewGroupRects;  // header click targets, content-space
+static std::map<std::string, bool>    g_overviewGroupOpen;   // by FlaggedPairGroup::key
+static POINT g_overviewHoverPt = {-1, -1};                   // content-space; -1 = none
+static std::vector<RECT> g_overviewHoverRects;               // hoverable rows from the last paint
+
+void resetOverviewGroups() { g_overviewGroupOpen.clear(); }
+
+// Default: all classes open when there are up to three; otherwise only
+// the first, so a long class list stays scannable.
+static bool overviewGroupOpen(size_t idx) {
+    const auto& groups = g_analysisResults.flaggedGroups;
+    auto it = g_overviewGroupOpen.find(groups[idx].key);
+    if (it != g_overviewGroupOpen.end()) return it->second;
+    return groups.size() <= 3 || idx == 0;
+}
+
+void toggleOverviewGroup(HWND hwnd, int idx) {
+    const auto& groups = g_analysisResults.flaggedGroups;
+    if (idx < 0 || idx >= (int)groups.size()) return;
+    g_overviewGroupOpen[groups[idx].key] = !overviewGroupOpen((size_t)idx);
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+// Draws a hover background if the pointer is over `row` (screen space)
+// and records the row for the hover hit-test.
+static void overviewHoverRow(HDC hdc, const RECT& row) {
+    RECT c = {row.left, row.top + g_scrollY, row.right, row.bottom + g_scrollY};
+    g_overviewHoverRects.push_back(c);
+    if (PtInRect(&c, g_overviewHoverPt)) {
+        HBRUSH hb = CreateSolidBrush(GRAY_850);
+        FillRect(hdc, &row, hb);
+        DeleteObject(hb);
+    }
+}
+
+static std::wstring classLabel(const std::string& block) {
+    return s2w(block.empty() ? std::string("General") : block);
+}
+
+// One clickable flagged-pair row: CALSS score (severity colour, same
+// formatting as Flagged Pairs), its #N there, the two students, an
+// optional context label (class), and "View".
+static int drawOverviewPairRow(HDC hdc, int left, int right, int y, int pairIdx,
+                               const std::wstring& context) {
+    const PairAnalysisDisplay& p = g_analysisResults.flaggedPairs[pairIdx];
+    const int h = S(32);
+    RECT row = {left, y, right, y + h};
+    overviewHoverRow(hdc, row);
+
+    HFONT of = (HFONT)SelectObject(hdc, g_hFontMono);
+    SetTextColor(hdc, pairSeverityColor(p.combinedScore));
+    RECT sr = {left + S(10), y, left + S(84), y + h};
+    DrawTextW(hdc, fmtPct(p.combinedScore).c_str(), -1, &sr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+    SelectObject(hdc, g_hFontMonoSm);
+    SetTextColor(hdc, GRAY_500);
+    RECT nr = {left + S(88), y, left + S(146), y + h};
+    DrawTextW(hdc, (L"#" + std::to_wstring(pairIdx + 1)).c_str(), -1, &nr,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+    SelectObject(hdc, g_hFontBodyNew);
+    const wchar_t* view = L"View ›";
+    SIZE vs; GetTextExtentPoint32W(hdc, view, (int)wcslen(view), &vs);
+    RECT vr = {right - S(10) - vs.cx, y, right - S(10), y + h};
+    SetTextColor(hdc, GOLD_400);
+    DrawTextW(hdc, view, -1, &vr, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+
+    int namesLeft = left + S(150);
+    int ctxRight = vr.left - S(16);
+    int ctxLeft = ctxRight;
+    if (!context.empty()) {
+        int ctxMax = (right - left) * 35 / 100;
+        SIZE cs; GetTextExtentPoint32W(hdc, context.c_str(), (int)context.size(), &cs);
+        ctxLeft = ctxRight - std::min((int)cs.cx, ctxMax);
+        SetTextColor(hdc, GRAY_400);
+        RECT cr = {ctxLeft, y, ctxRight, y + h};
+        DrawTextW(hdc, context.c_str(), -1, &cr,
+                  DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    }
+
+    SelectObject(hdc, g_hFontButton);
+    SetTextColor(hdc, WHITE_);
+    std::wstring names = s2w(p.studentA.studentName) + L"  ↔  " + s2w(p.studentB.studentName);
+    RECT pr = {namesLeft, y, ctxLeft - S(12), y + h};
+    DrawTextW(hdc, names.c_str(), -1, &pr,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(hdc, of);
+
+    // Same click path as the findings' "Pair N" links.
+    AISummaryLinkRect link;
+    link.r = {row.left, row.top + g_scrollY, row.right, row.bottom + g_scrollY};
+    link.pairIndex = pairIdx;
+    g_aiSummaryLinkRects.push_back(link);
+    addFocusable(g_contentFocusables, FocusKind::AISummaryLink, link.r, pairIdx, true);
+    return h;
+}
+
+// Wrapped gray note (AI states, captions). Returns its height.
+static int drawOverviewNote(HDC hdc, int left, int right, int y, const std::wstring& text,
+                            COLORREF color) {
+    HFONT of = (HFONT)SelectObject(hdc, g_hFontBodyNew);
+    RECT m = {left, 0, right, 0};
+    DrawTextW(hdc, text.c_str(), -1, &m, DT_LEFT | DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX);
+    int h = m.bottom - m.top;
+    SetTextColor(hdc, color);
+    RECT t = {left, y, right, y + h};
+    DrawTextW(hdc, text.c_str(), -1, &t, DT_LEFT | DT_WORDBREAK | DT_NOPREFIX);
+    SelectObject(hdc, of);
+    return h;
+}
+
+static int drawNotableCases(HDC hdc, int x, int y, int width) {
+    const AnalysisResults& r = g_analysisResults;
+    if (r.flaggedGroups.size() < 2 || r.flaggedPairs.empty()) return 0;
+    int startY = y;
+    int left = x + S(30), right = x + width - S(30);
+
+    y += drawEyebrow(hdc, left, y, right - left, L"NOTABLE CASES");
+    y += S(8);
+    y += drawOverviewNote(hdc, left, right, y,
+        L"The highest combined scores across all classes, in CALSS's own ranking "
+        L"(the top of Flagged pairs).", GRAY_400);
+    y += S(8);
+    size_t n = std::min(OVERVIEW_NOTABLE_CASES, r.flaggedPairs.size());
+    for (size_t i = 0; i < n; ++i) {
+        const auto& p = r.flaggedPairs[i];
+        std::wstring ctx = (classLabel(p.blockA) == classLabel(p.blockB))
+            ? classLabel(p.blockA)
+            : classLabel(p.blockA) + L" ↔ " + classLabel(p.blockB);
+        y += drawOverviewPairRow(hdc, left, right, y, (int)i, ctx);
+    }
+    return y - startY + S(28);
+}
+
+// AI text state for one class when it has no summary of its own.
+// Empty = say nothing (AI wasn't asked for, so there is nothing missing).
+static std::wstring classAiNote(const FlaggedPairGroup& g) {
+    const AIBatchPatterns& bp = g_analysisResults.aiBatchPatterns;
+    if (!aiKeyConfigured() || bp.skipped) return L"";
+    if (!bp.success) return L"AI summary unavailable for this class.";
+    if (!g.aiCovered) return L"No AI summary: AI summaries cover the first 10 classes.";
+    return L"No AI summary was returned for this class.";
+}
+
+static int drawClassGroups(HDC hdc, int x, int y, int width) {
+    const AnalysisResults& r = g_analysisResults;
+    if (r.flaggedGroups.empty()) return 0;
+    int startY = y;
+    int left = x + S(30), right = x + width - S(30);
+
+    y += drawEyebrow(hdc, left, y, right - left, L"FLAGGED PAIRS BY CLASS");
+    y += S(10);
+
+    for (size_t gi = 0; gi < r.flaggedGroups.size(); ++gi) {
+        const FlaggedPairGroup& g = r.flaggedGroups[gi];
+        bool open = overviewGroupOpen(gi);
+
+        // Header: chevron, class name, CALSS count and top score.
+        const int hh = S(40);
+        RECT hdr = {left, y, right, y + hh};
+        overviewHoverRow(hdc, hdr);
+        HFONT of = (HFONT)SelectObject(hdc, g_hFontButton);
+        SetTextColor(hdc, GOLD_500);
+        RECT chev = {left + S(6), y, left + S(26), y + hh};
+        DrawTextW(hdc, open ? L"▾" : L"▸", -1, &chev, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+        size_t n = g.pairIndices.size();
+        std::wstring count = fmtCount((long long)n) + (n == 1 ? L" flagged pair" : L" flagged pairs") +
+                             L"  ·  highest " + fmtPct(r.flaggedPairs[g.pairIndices[0]].combinedScore);
+        SelectObject(hdc, g_hFontBodyNew);
+        SIZE cs; GetTextExtentPoint32W(hdc, count.c_str(), (int)count.size(), &cs);
+        SetTextColor(hdc, GRAY_400);
+        RECT cr = {right - S(10) - cs.cx, y, right - S(10), y + hh};
+        DrawTextW(hdc, count.c_str(), -1, &cr, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+
+        SelectObject(hdc, g_hFontButton);
+        SetTextColor(hdc, WHITE_);
+        RECT lr = {left + S(30), y, cr.left - S(16), y + hh};
+        std::wstring label = s2w(g.label);
+        if (g.acrossClasses) label += L"  (pairs from two different classes)";
+        DrawTextW(hdc, label.c_str(), -1, &lr,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        SelectObject(hdc, of);
+
+        RECT hc = {hdr.left, hdr.top + g_scrollY, hdr.right, hdr.bottom + g_scrollY};
+        g_overviewGroupRects.push_back({hc, (int)gi});
+        addFocusable(g_contentFocusables, FocusKind::OverviewGroupToggle, hc, (int)gi, true);
+        y += hh;
+        hairlineH(hdc, left, right, y);
+
+        if (open) {
+            int bodyLeft = left + S(30);
+            y += S(12);
+            // Gemini's summary for this class (with "Pair N" links), or
+            // what happened to it.
+            if (!g.aiSummary.empty()) {
+                HFONT of2 = (HFONT)SelectObject(hdc, g_hFontBodyNew);
+                std::wstring text = s2w(g.aiSummary);
+                auto matches = findAllPairLinks(text);
+                int textX = bodyLeft + S(16);
+                int th = layoutFindingText(hdc, textX, y, right - textX, text, matches, false, nullptr);
+                layoutFindingText(hdc, textX, y, right - textX, text, matches, true, &g_aiSummaryLinkRects);
+                RECT rule = {bodyLeft, y, bodyLeft + S(3), y + th};
+                HBRUSH rb = CreateSolidBrush(GOLD_500);
+                FillRect(hdc, &rule, rb);
+                DeleteObject(rb);
+                SelectObject(hdc, of2);
+                y += th + S(10);
+            } else {
+                std::wstring note = classAiNote(g);
+                if (!note.empty()) y += drawOverviewNote(hdc, bodyLeft, right, y, note, GRAY_500) + S(10);
+            }
+
+            size_t shown = std::min(OVERVIEW_PAIRS_PER_CLASS, n);
+            for (size_t k = 0; k < shown; ++k) {
+                int idx = g.pairIndices[k];
+                const auto& p = r.flaggedPairs[idx];
+                std::wstring ctx = g.acrossClasses
+                    ? classLabel(p.blockA) + L" ↔ " + classLabel(p.blockB) : L"";
+                y += drawOverviewPairRow(hdc, bodyLeft, right, y, idx, ctx);
+            }
+            if (n > shown) {
+                // "Showing the top 5 of N." + a link to the full list.
+                HFONT of3 = (HFONT)SelectObject(hdc, g_hFontBodyNew);
+                std::wstring lead = L"Showing the top " + std::to_wstring(shown) + L" of " +
+                                    fmtCount((long long)n) + L" in this class.  ";
+                SIZE ls; GetTextExtentPoint32W(hdc, lead.c_str(), (int)lead.size(), &ls);
+                int ly = y + S(6), lh = S(22);
+                SetTextColor(hdc, GRAY_500);
+                RECT ldr = {bodyLeft + S(10), ly, bodyLeft + S(10) + ls.cx, ly + lh};
+                DrawTextW(hdc, lead.c_str(), -1, &ldr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                const wchar_t* all = L"Open Flagged pairs ›";
+                SIZE as; GetTextExtentPoint32W(hdc, all, (int)wcslen(all), &as);
+                RECT ar = {ldr.right, ly, ldr.right + as.cx, ly + lh};
+                SetTextColor(hdc, GOLD_400);
+                DrawTextW(hdc, all, -1, &ar, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                AISummaryLinkRect link;
+                link.r = {ar.left, ar.top + g_scrollY, ar.right, ar.bottom + g_scrollY};
+                link.pairIndex = -1;   // jumpToFlaggedPair(-1): the tab, no pair opened
+                g_aiSummaryLinkRects.push_back(link);
+                addFocusable(g_contentFocusables, FocusKind::AISummaryLink, link.r, -1, true);
+                SelectObject(hdc, of3);
+                y += lh + S(6);
+            }
+            y += S(14);
+        } else {
+            y += S(4);
+        }
+    }
+    return y - startY + S(28);
+}
+
+// The Overview's AI area: overall findings, then notable cases and the
+// class-by-class breakdown. The last two are CALSS data and are drawn
+// whether or not AI ran or succeeded.
+int drawAISummary(HDC hdc, int x, int y, int width) {
+    int startY = y;
+    g_aiSummaryLinkRects.clear();
+    g_overviewGroupRects.clear();
+    g_overviewHoverRects.clear();
+    y += drawAIOverall(hdc, x, y, width);
+    y += drawNotableCases(hdc, x, y, width);
+    y += drawClassGroups(hdc, x, y, width);
+    return y - startY;
+}
+
+// Hover highlight for the rows above (like the Classes roster): repaint
+// only when the pointer moves onto a different row.
+void handleOverviewMouseMove(HWND hwnd, int mx, int my) {
+    POINT p = {mx, my + g_scrollY};
+    auto rowAt = [](POINT pt) {
+        for (size_t i = 0; i < g_overviewHoverRects.size(); ++i)
+            if (PtInRect(&g_overviewHoverRects[i], pt)) return (int)i;
+        return -1;
+    };
+    int before = rowAt(g_overviewHoverPt), after = rowAt(p);
+    g_overviewHoverPt = p;
+    if (before != after) {
+        TRACKMOUSEEVENT tme = {sizeof(tme), TME_LEAVE, hwnd, 0};
+        TrackMouseEvent(&tme);
+        InvalidateRect(hwnd, nullptr, FALSE);
+    }
+}
+
+void clearOverviewHover(HWND hwnd) {
+    bool had = g_overviewHoverPt.x >= 0;
+    g_overviewHoverPt = {-1, -1};
+    if (had) InvalidateRect(hwnd, nullptr, FALSE);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -976,6 +1304,15 @@ bool handleOverviewClick(HWND hwnd, int mx, int scrolledY) {
             g_selectedStudent = -1;
             g_scrollY = 0;
             InvalidateRect(hwnd, nullptr, FALSE);
+            return true;
+        }
+    }
+
+    // Class section headers (1.2.0): expand/collapse only.
+    for (const auto& g : g_overviewGroupRects) {
+        if (mx >= g.r.left && mx < g.r.right &&
+            scrolledY >= g.r.top && scrolledY < g.r.bottom) {
+            toggleOverviewGroup(hwnd, g.groupIdx);
             return true;
         }
     }
