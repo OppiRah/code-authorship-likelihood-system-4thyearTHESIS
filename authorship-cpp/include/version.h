@@ -10,10 +10,12 @@
 // 1.0.0 = first installer release of the thesis build (Phase 5,
 // 2026-10-07). Bump the last number for a fix-only rebuild, the middle
 // one for a release that adds or changes features.
+// 1.1.0 = Classroom downloads moved to %LOCALAPPDATA%\CALSS\Classroom
+// (removed on uninstall) + Gemini model discovery / model dropdown.
 // ─────────────────────────────────────────────────────────────
 
 #define CALSS_VERSION_MAJOR 1
-#define CALSS_VERSION_MINOR 0
+#define CALSS_VERSION_MINOR 1
 #define CALSS_VERSION_PATCH 0
 
 #define CALSS_STR2_(x) #x
