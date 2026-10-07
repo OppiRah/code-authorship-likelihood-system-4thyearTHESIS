@@ -1,4 +1,7 @@
 @echo off
+REM Resources first: icon, manifest, version info (res\calss.rc,
+REM numbers from include\version.h). Linked in as calss_res.o.
+windres -I include -O coff res/calss.rc -o calss_res.o || exit /b 1
 g++ -std=c++17 ^
     -static -static-libgcc -static-libstdc++ ^
     -O2 -mwindows ^
@@ -24,6 +27,7 @@ g++ -std=c++17 ^
     src/gui_ai_settings.cpp ^
     src/secret_store.cpp ^
     src/app_paths.cpp ^
+    calss_res.o ^
     -I include/ ^
     -lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus -ladvapi32 ^
     -o authorship.exe

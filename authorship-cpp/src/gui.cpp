@@ -5,6 +5,7 @@
 // ─────────────────────────────────────────────────────────────
 #include "../include/gui_common.h"
 #include "../include/app_paths.h"
+#include "../include/version.h"
 #include <tuple>
 
 #ifdef _WIN32
@@ -3999,8 +4000,8 @@ static void handleMenuCommand(HWND hwnd, int commandId) {
 
         case ID_HELP_ABOUT:
             showAppModal(L"About CALSS",
-                L"Code Authorship Likelihood System\n"
-                L"Version 0.4.0 (Proposal Prototype)\n\n"
+                L"Code Authorship Likelihood Scoring System\n"
+                L"Version " CALSS_VERSION_STR L" (" CALSS_RELEASE_LABEL L")\n\n"
                 L"An AI-Assisted Code Authorship Likelihood System "
                 L"Using Student-Specific Programming Style Fingerprinting "
                 L"for Academic Integrity Support.\n\n"
@@ -4527,11 +4528,19 @@ int runGUI(HINSTANCE hInstance)
     wc.style            = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc      = WindowProc;
     wc.hInstance        = hInstance;
-    wc.hIcon            = LoadIcon(nullptr, IDI_APPLICATION);
+    // CALSS seal from res/calss.rc (taskbar, Alt+Tab, title bar), at
+    // the system's large/small icon sizes; stock icon if it's missing.
+    wc.hIcon            = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_CALSS),
+                              IMAGE_ICON, GetSystemMetrics(SM_CXICON),
+                              GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR);
     wc.hCursor          = LoadCursor(nullptr, IDC_ARROW);
     wc.hbrBackground    = (HBRUSH)CreateSolidBrush(BG_MAIN);
     wc.lpszClassName    = WINDOW_CLASS_NAME;
-    wc.hIconSm          = LoadIcon(nullptr, IDI_APPLICATION);
+    wc.hIconSm          = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_CALSS),
+                              IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+                              GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
+    if (!wc.hIcon)   wc.hIcon   = LoadIcon(nullptr, IDI_APPLICATION);
+    if (!wc.hIconSm) wc.hIconSm = LoadIcon(nullptr, IDI_APPLICATION);
 
     if (!RegisterClassExW(&wc)) {
         MessageBoxW(nullptr, L"Failed to register window class",

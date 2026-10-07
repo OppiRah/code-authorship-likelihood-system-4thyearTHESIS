@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  CALSS application manifest (embedded by res/calss.rc).
+
+  - asInvoker: CALSS never needs administrator rights. It only reads
+    its own install folder and writes per-user / ProgramData locations.
+  - supportedOS: Windows 7 through 11 (CALSS is tested on 10/11).
+  - Deliberately NOT declared:
+      * Common Controls v6 (visual styles). The sidebar buttons and the
+        "Include AI summary" checkbox are coloured through
+        WM_CTLCOLORBTN / WM_CTLCOLORSTATIC (gui.cpp, SidebarProc); themed
+        v6 buttons and checkboxes ignore those colours, so enabling v6
+        would turn the maroon primary button into a stock grey one and
+        draw the checkbox label dark-on-dark. The classic controls are
+        the look the GUI was designed and tested with.
+      * DPI awareness. runGUI() already sets Per-Monitor-V2 at startup,
+        before any window exists, and derives g_dpiScale from the same
+        call. Declaring it here as well would change nothing on
+        Windows 10 1703+ and could only diverge on older builds.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <description>CALSS - Code Authorship Likelihood Scoring System</description>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{35138b9a-5d96-4fbd-8e2d-a2440225f93a}"/> <!-- Windows 7 -->
+      <supportedOS Id="{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}"/> <!-- Windows 8 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/> <!-- Windows 8.1 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/> <!-- Windows 10/11 -->
+    </application>
+  </compatibility>
+</assembly>

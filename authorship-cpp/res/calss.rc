@@ -1,0 +1,39 @@
+// CALSS Windows resources: application icon, manifest, version info.
+// Compiled by compile.bat with windres; version numbers come from
+// include/version.h (the single source of truth).
+
+#include <winver.h>
+#include "version.h"
+
+IDI_CALSS ICON "ulccslogo.ico"
+
+1 24 "res/calss.manifest"   // CREATEPROCESS_MANIFEST_RESOURCE_ID, RT_MANIFEST
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     CALSS_VERSION_MAJOR, CALSS_VERSION_MINOR, CALSS_VERSION_PATCH, 0
+PRODUCTVERSION  CALSS_VERSION_MAJOR, CALSS_VERSION_MINOR, CALSS_VERSION_PATCH, 0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"   // U.S. English, Unicode
+        BEGIN
+            VALUE "CompanyName",      "CALSS thesis team, College of Computer Studies, University of Luzon"
+            VALUE "FileDescription",  "CALSS - Code Authorship Likelihood Scoring System"
+            VALUE "FileVersion",      CALSS_VERSION_STR
+            VALUE "InternalName",     "authorship"
+            VALUE "OriginalFilename", "authorship.exe"
+            VALUE "ProductName",      "CALSS"
+            VALUE "ProductVersion",   CALSS_VERSION_STR " (" CALSS_RELEASE_LABEL ")"
+            VALUE "Comments",         "Fourth-year CS thesis project. Statistical evidence only; academic integrity decisions rest with the instructor."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
