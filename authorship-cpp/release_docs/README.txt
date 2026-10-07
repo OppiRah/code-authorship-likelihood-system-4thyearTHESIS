@@ -68,7 +68,8 @@ WHERE CALSS STORES THINGS
 -------------------------
 Nothing is written into the CALSS program folder.
   Similarity reports      Documents\CALSS Reports\
-  Classroom downloads     Documents\CALSS_Classroom_Sync\  (default)
+  Classroom downloads     %LOCALAPPDATA%\CALSS\Classroom\  (since 1.1.0; the
+                          installed version deletes it on uninstall)
   Classroom settings      %LOCALAPPDATA%\CALSS\
   Audit log               C:\ProgramData\CALSS\audit.log
                           (View > View Audit Log)

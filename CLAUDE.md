@@ -379,12 +379,30 @@ Record: `docs/RELEASE_READINESS.md` §7. In short:
   installer grants Users `(R,AD)` on `%PROGRAMDATA%\CALSS\audit.log`.
 - **Import .c files** now copies to `Documents\CALSS Imports` (was
   cwd-relative `imported_data`, broken under Program Files).
-- **Uninstall** removes program + shortcuts only; reports, imports,
-  audit log, `%LOCALAPPDATA%\CALSS` and Credential Manager are kept.
-- **Status:** READY FOR CROSS-PC INSTALLER TESTING. Testers get the
-  installer, its SHA256 file, the sample-data ZIP and
-  `release_docs/INSTALLER_TEST_CHECKLIST.txt`. Phase 5 is complete only
-  after a non-developer PC passes that checklist.
+- **Uninstall** (1.0.0) removed program + shortcuts only.
+- **Status:** the 1.0.0 installer passed cross-PC testing (developer
+  report, 2026-10-07).
+
+## CALSS 1.1.0 (2026-10-07)
+
+Record: `docs/RELEASE_READINESS.md` §8.
+- **Classroom sync** always downloads to `appClassroomDirU8()` =
+  `%LOCALAPPDATA%\CALSS\Classroom` (no exe-folder fallback, never the
+  loaded folder). The uninstaller deletes exactly that subfolder
+  (`[UninstallDelete]`); everything else in `%LOCALAPPDATA%\CALSS`
+  (`calss_gc_settings.json`, `gemini_model.txt`) is kept.
+- **Gemini:** no hard-coded model. `gemini_checkKey()` = models.list;
+  anchored ID policy (flash-lite > flash > *-latest, newest first; never
+  pro/preview/tts/image); per-key session cache under a mutex; one retry
+  on model-unavailable / 503; structured JSON output
+  (`responseSchema` ARRAY of STRING) on both calls. Prompt wording
+  untouched. AI Settings checks on a worker thread
+  (`WM_AI_CHECK_DONE`) and has a model dropdown (Automatic default,
+  stored in `%LOCALAPPDATA%\CALSS\gemini_model.txt`).
+- Google limits the 2.5 models to accounts that used them before —
+  that is why a new tester key failed on 1.0.0's `gemini-2.5-flash-lite`.
+- **Status:** READY FOR CROSS-PC TESTING of `CALSS_Setup_1.1.0.exe`
+  (new key on another PC, real Classroom sync + uninstall cleanup).
 
 Claude Code note: in this environment `cmd /c compile.bat` fails with
 "not recognized"; run batch files by full quoted path

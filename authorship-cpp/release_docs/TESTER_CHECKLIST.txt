@@ -95,7 +95,7 @@ G. GOOGLE CLASSROOM  (only if your account is an approved test user;
     verified" page -> mark G, not a bug.
 31. Test-user account: sign in; browser says "Authentication
     Successful"; CALSS shows your courses; sync one course; files land
-    in Documents\CALSS_Classroom_Sync (or the folder you chose); load
+    in %LOCALAPPDATA%\CALSS\Classroom (since 1.1.0); load
     and analyze them.
 32. Start sign-in, then close the browser tab without signing in: CALSS
     shows a "sign-in didn't complete / timed out" message within ~3 min.

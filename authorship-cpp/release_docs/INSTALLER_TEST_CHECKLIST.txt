@@ -1,9 +1,9 @@
-﻿CALSS 1.0.0 - INSTALLER TEST CHECKLIST (thesis team)
+﻿CALSS 1.1.0 - INSTALLER TEST CHECKLIST (thesis team)
 =====================================================================
 
 You received:
-  CALSS_Setup_1.0.0.exe            the installer
-  CALSS_Setup_1.0.0_SHA256.txt     its checksum
+  CALSS_Setup_1.1.0.exe            the installer
+  CALSS_Setup_1.1.0_SHA256.txt     its checksum
   CALSS_SampleData_SYNTHETIC.zip   synthetic test submissions
   INSTALLER_TEST_CHECKLIST.txt     this file
 
@@ -19,8 +19,8 @@ BEFORE INSTALLING
 -----------------
  1. Check the download is the official build. In PowerShell, in the
     folder with the installer:
-        Get-FileHash .\CALSS_Setup_1.0.0.exe -Algorithm SHA256
-    The hash must equal the first line of CALSS_Setup_1.0.0_SHA256.txt.
+        Get-FileHash .\CALSS_Setup_1.1.0.exe -Algorithm SHA256
+    The hash must equal the first line of CALSS_Setup_1.1.0_SHA256.txt.
     If it doesn't match, STOP and tell the developer.         ______
 
  2. Windows may warn about the download or show "Windows protected
@@ -36,13 +36,13 @@ INSTALL
  3. Run the installer. It asks "Install for all users" (needs an admin
     password once) or "Install for me only" (no admin). Pick ALL USERS
     if you can; note which one you used: ________          ______
- 4. Wizard shows the CALSS icon, "CALSS 1.0.0", install folder
+ 4. Wizard shows the CALSS icon, "CALSS 1.1.0", install folder
     C:\Program Files\CALSS (all users) or
     ...\AppData\Local\Programs\CALSS (me only). Leave "Create a
     desktop shortcut" ticked. Finish installing.           ______
  5. Start Menu has "CALSS"; Desktop has "CALSS"; both show the CALSS
     icon (dark square, white C-L-S mark).                  ______
- 6. Settings > Apps > Installed apps lists "CALSS 1.0.0".  ______
+ 6. Settings > Apps > Installed apps lists "CALSS 1.1.0".  ______
 
 
 FIRST RUN
@@ -50,7 +50,7 @@ FIRST RUN
  7. Start CALSS from the Start Menu. No black console window opens,
     no admin prompt appears, the loading screen and sidebar show the
     seal, and the taskbar button shows the CALSS icon.     ______
- 8. Help > About says "Version 1.0.0 (Thesis Release)".    ______
+ 8. Help > About says "Version 1.1.0 (Thesis Release)".    ______
  9. Help > Documentation shows the picture guide.          ______
 10. If you never saved a Gemini key on this Windows account:
     "Include AI summary" is unticked and greyed, with a "Set up AI..."
@@ -81,10 +81,16 @@ LOCAL ANALYSIS (no internet needed)
 OPTIONAL ONLINE CHECKS
 ----------------------
 19. File > AI Settings: paste YOUR OWN Gemini key, Save (it is tested
-    first). Run analysis with AI ticked: an AI summary appears.
+    first). Open AI Settings again: it says "Your saved key works" and
+    "Automatic uses Gemini ... (gemini-...)" - write the model down:
+    ______________. Run analysis with AI ticked: an AI summary appears,
+    signed with that model, and expanded pairs show an AI evidence note.
+    (1.0.0 failed here for keys from new Google projects.)
                                                 ______ / SKIPPED
 20. Sync Google Classroom with an account on the app's test-user list:
-    sign-in completes in the browser and your courses appear.
+    sign-in completes in the browser and your courses appear. The
+    "Save to:" line shows ...\AppData\Local\CALSS\Classroom. Sync one
+    assignment, then Run analysis on it.
     (Accounts not on the list cannot sign in - that is expected while
     the Google app is in "Testing".)            ______ / SKIPPED
 
@@ -100,9 +106,11 @@ you installed for ALL USERS)
 
 UNINSTALL AND REINSTALL
 -----------------------
-22. Settings > Apps > CALSS > Uninstall. A message lists what was kept.
-    Afterwards: no Start Menu / Desktop shortcut, the CALSS install
-    folder is gone.                                        ______
+22. Settings > Apps > CALSS > Uninstall. A message says the Classroom
+    copies were deleted and lists what was kept. Afterwards: no Start
+    Menu / Desktop shortcut, the CALSS install folder is gone, and
+    %LOCALAPPDATA%\CALSS\Classroom is gone (paste that path into
+    Explorer's address bar).                               ______
 23. Still present (kept on purpose): Documents\CALSS Reports,
     Documents\CALSS Imports, C:\ProgramData\CALSS\audit.log.  ______
 24. Run the installer again, start CALSS, repeat step 13.  ______

@@ -2,8 +2,9 @@
 
 Status of branch `optimization-pass` as a release candidate. §1–§5 were
 written in Phase 4 as the input for the installer; §6 is the portable
-test package; **§7 is the Phase 5 installer (CALSS 1.0.0)** and is the
-current state wherever it differs from the earlier sections.
+test package; §7 is the Phase 5 installer (CALSS 1.0.0); **§8 is CALSS
+1.1.0 (Classroom storage, Gemini model discovery)** and is the current
+state wherever it differs from the earlier sections.
 
 ## 1. What a release consists of
 
@@ -283,7 +284,7 @@ gave the same installer hash.
 | Audit log | `%PROGRAMDATA%\CALSS\audit.log` | installer (all users) or app | academic-integrity audit trail | **No** | evidence record |
 | Similarity reports | `Documents\CALSS Reports` | app | per-student HTML reports | **No** | user documents |
 | Imported submissions | `Documents\CALSS Imports` | app, File > Import | copies of the picked `.c` files | **No** | student data the user chose to import |
-| Classroom downloads | `Documents\CALSS_Classroom_Sync` (default) or the chosen data folder | app, sync | downloaded submissions | **No** | student data |
+| Classroom downloads | 1.0.0: `Documents\CALSS_Classroom_Sync` (default) or the loaded data folder. **1.1.0: `%LOCALAPPDATA%\CALSS\Classroom`** | app, sync | downloaded submissions | 1.0.0: No. **1.1.0: Yes** (§8.2) | app-managed working copies of Classroom data |
 | Sync manifest | `calss_sync_manifest.jsonl` inside each analyzed folder | app | block/title tags | **No** | lives in the user's data |
 | CSV exports | wherever the user saves | app | flagged-pair export | **No** | user documents |
 | Fallback audit log | `calss_audit.log` in the working folder | app | only if ProgramData can't be resolved (not observed) | No | — |
@@ -396,3 +397,211 @@ optional Gemini/Classroom, second-account audit log if possible,
 uninstall, reinstall) and send the checklist back. Phase 5 is complete
 when at least one non-developer PC passes items 1–18 and 22–24, with no
 FAIL left unexplained.
+
+## 8. CALSS 1.1.0 — Classroom storage + Gemini model discovery (2026-10-07)
+
+Branch `optimization-pass`. Commits: `637d94a` (Classroom storage and
+uninstall cleanup), `79fcd42` (Gemini model discovery and AI Settings),
+`c1c282f` (structured JSON output), `8384456` (version 1.1.0), then this
+documentation. The 1.0.0 installer passed cross-PC testing (developer
+report); 1.1.0 is a new artifact with a new name and hash, and
+`CALSS_Setup_1.0.0.exe` is kept unchanged next to it. Golden check
+byte-identical after every source commit; no methodology code touched.
+
+**Version:** 1.1.0, not 1.0.1. `include/version.h`'s rule bumps the
+middle number for releases that change behaviour or add features, and
+this one changes where Classroom data lives and what uninstall deletes,
+and adds the model dropdown.
+
+### 8.1 Google Classroom storage
+
+**Before (≤ 1.0.0), traced in code:**
+
+| Data | Written by | Location | Persistent |
+|---|---|---|---|
+| Downloaded `.c` submissions | `gc_downloadSubmissions` → `downloadDriveFile` (google_classroom.cpp) | the data folder currently loaded in CALSS (`g_state.dataFolder`); if none, `Documents\CALSS_Classroom_Sync` | yes, survived uninstall |
+| Per-block "drop-zone" subfolders | `syncRunThread` (gui_sync_sheet.cpp) | same folder | yes |
+| `calss_sync_manifest.jsonl` (file → assignment title, block) | `appendManifestEntry` | same folder | yes |
+| OAuth client settings | `gc_saveSettings` | `%LOCALAPPDATA%\CALSS\calss_gc_settings.json` | yes |
+| OAuth token | `secretWrite` | Credential Manager `CALSS/GoogleClassroomToken` | yes |
+| Temporary files | none (downloads go memory → file) | — | — |
+
+So a sync could write student submissions into any folder the professor
+happened to have open, mixing them with that folder's own data.
+
+**Now (1.1.0):** every sync writes to `appClassroomDirU8()` =
+`%LOCALAPPDATA%\CALSS\Classroom` (via `SHGetFolderPathW(CSIDL_LOCAL_APPDATA)`,
+like the other app_paths helpers). File names, subfolders and the
+manifest format are unchanged; after a sync CALSS loads that folder as
+before. The sync sheet's "Save to:" shows the real path.
+
+- **Why not the install folder:** Program Files is read-only for normal
+  users and must hold only binaries; per-user student data does not
+  belong in a shared, admin-owned location. The helper has **no
+  fallback to the exe folder** (unlike the reports/imports helpers): if
+  `%LOCALAPPDATA%` can't be resolved or created, sync refuses with a
+  message and writes nothing.
+- **Security:** the folder inherits the user profile's ACL (the user,
+  SYSTEM, Administrators; no Users/Everyone entry; checked with
+  icacls). CALSS adds no ACLs. Nothing from it is packaged: the
+  installer's `[Files]` names each file. Audit entries for a sync record
+  block, assignment title and file count, never source contents. The
+  OAuth token stays in Credential Manager, never in these files.
+- **Not migrated:** existing `Documents\CALSS_Classroom_Sync` folders
+  (and synced files inside other folders) are left exactly as they are.
+
+### 8.2 Uninstall (supersedes §7.6 for Classroom data)
+
+`[UninstallDelete] filesandordirs {localappdata}\CALSS\Classroom`, i.e.
+the Classroom working copies of the **Windows account running the
+uninstaller**, and nothing else under `%LOCALAPPDATA%\CALSS`. The
+end-of-uninstall message now says these were deleted.
+
+| Removed on uninstall | Kept |
+|---|---|
+| program files, shortcuts, Add/Remove entry | `Documents\CALSS Reports`, `Documents\CALSS Imports`, CSV exports |
+| `%LOCALAPPDATA%\CALSS\Classroom` (synced submissions + manifest) | `%LOCALAPPDATA%\CALSS\calss_gc_settings.json`, `gemini_model.txt` |
+| | `%PROGRAMDATA%\CALSS\audit.log` |
+| | Credential Manager `CALSS/GeminiApiKey`, `CALSS/GoogleClassroomToken` |
+| | old `Documents\CALSS_Classroom_Sync` folders from ≤ 1.0.0 |
+
+Limitation: on a shared PC with an all-users install, other Windows
+accounts' Classroom folders are not removed. An elevated uninstaller can
+only reliably resolve the current account's profile, and deleting other
+users' profile data was out of the approved scope. If a different admin
+account approves the UAC prompt, `{localappdata}` is that admin's
+folder.
+
+### 8.3 Gemini model discovery
+
+**Before:** one hard-coded model, `gemini-2.5-flash-lite`, in two
+places in gemini.cpp: "Test key" (`GET /v1beta/models/gemini-2.5-flash-lite`)
+and every generation (`POST …/gemini-2.5-flash-lite:generateContent`).
+A third hard-coded name, "Gemini 2.5 Flash Lite", was the Overview
+signature. There was no fallback; errors were "API returned status N" +
+200 characters of the body.
+
+**Why it broke:** Google's model page (ai.google.dev/gemini-api/docs/models,
+read 2026-10-07) says: *"To ensure reliable performance for everyone, we
+are limiting access to the 2.5 models to users who have actively used
+them in the past. … For any new projects, use our latest models: 3.5
+Flash-Lite or 3.8 Flash."* The deprecations page lists
+`gemini-2.5-flash-lite` with no shutdown date but restricted to existing
+users. A tester's new key failing with "model unavailable/not
+supported" while the old key works is **consistent with that
+restriction**. The tester's exact error text was not available here, so
+this is the documented cause, not a reproduced one. (The developer's
+key still has 2.5 access and lists it.)
+
+**Now:**
+- **Discovery:** `GET https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000`
+  (official `models.list`, ai.google.dev/api/models; all pages; free,
+  generates nothing). Also used as the key check: 200 = valid key.
+- **Compatible:** `supportedGenerationMethods` contains
+  `generateContent`, `inputTokenLimit` ≥ 32,768, and the API identifier
+  (`name` without `models/`, never the display name) matches one of the
+  anchored patterns below.
+- **Ranking (automatic):**
+  1. `gemini-<N>[.<M>]-flash-lite[-NNN]`, newest version first
+  2. `gemini-<N>[.<M>]-flash[-NNN]`, newest first
+  3. `gemini-flash-lite-latest`, then 4. `gemini-flash-latest` (Google
+     hot-swaps these, so last resort)
+
+  Everything else is never auto-selected: Pro (cost), `-preview` /
+  `-exp` / dated previews (withdrawn at short notice), TTS, image, live,
+  transcribe, embeddings, Gemma, agents. Google's metadata has no cost
+  field, so "low cost" is this explicit family preference, not a
+  computed one. For the developer's key it picks `gemini-3.5-flash-lite`
+  from 10 compatible models (of 45 that support generateContent).
+- **Cache:** the list and pick are cached per key (by hash) for the
+  session, under a mutex, since the dialog worker and the analysis
+  thread both use them. A run makes no list call if the dialog already
+  checked the key; otherwise one list call before the first generation.
+- **Fallback:** if generateContent returns model-unavailable (404, or
+  400/403 whose message is about the model), that model is excluded for
+  the session, the list is refreshed and the next candidate is tried
+  **once**. A 503 ("overloaded", seen on the capacity-limited 2.5 models)
+  also tries the next candidate once, without excluding it. No other
+  error is retried. Both retry cases are replies where nothing was
+  generated, so cost can't multiply; `GEMINI_MAX_PAIRS` (50) and the two
+  calls per run are unchanged.
+- **Errors (distinct messages):** invalid key (400 `API_KEY_INVALID` /
+  401 / 403) · "The API key is valid, but no compatible Gemini model is
+  currently available to it" · "Gemini could not be reached" (no
+  answer / timeout) · "Gemini quota or rate limit reached (HTTP 429)" ·
+  "Gemini is temporarily unavailable (HTTP 5xx)" · model not available
+  (with Google's message) · unexpected reply. Timeouts: list 10/10/10/15 s,
+  generate 15/15/30/120 s. Core analysis is unaffected by any of them.
+- **Manual choice (added):** AI Settings has a "Gemini model" dropdown:
+  *Automatic (recommended)* (default) plus the compatible models for
+  this key (display name + ID). Stored in
+  `%LOCALAPPDATA%\CALSS\gemini_model.txt` (`auto` or an ID; not a
+  secret). A manual model that later becomes unavailable falls back to
+  Automatic's next candidate. It only offers models that pass the
+  filter, so Pro/preview can't be chosen.
+- **Threading:** AI Settings' Test, Save and the on-open check run on a
+  worker thread and post `WM_AI_CHECK_DONE`. The result never carries
+  the key: Save re-reads the box and compares a hash. Stale results
+  (dialog closed / newer check) are dropped by a job id. 1.0.0 ran
+  Test/Save on the UI thread.
+- **Security:** the key goes only into the `x-goog-api-key` header to
+  `generativelanguage.googleapis.com`; header and copies are zeroed after
+  use; never in URLs, logs, error text or the preference file. CALSS
+  never looks for keys anywhere; the user supplies one.
+- **Structured output (`c1c282f`):** found while testing — with
+  `gemini-3.5-flash-lite`, 1 of 4 Tier 1 runs returned an array the parser
+  read as 1 element instead of 50, so every per-pair note failed for that
+  run. Both calls now send `generationConfig {responseMimeType:
+  "application/json", responseSchema: ARRAY of STRING}`
+  (ai.google.dev/api/generate-content). **Prompt wording unchanged.**
+- The Overview signature shows the model actually used.
+
+Official sources: ai.google.dev/api/models (models.list / Model
+fields), ai.google.dev/gemini-api/docs/models (model list, 2.5 access
+restriction, version patterns), ai.google.dev/gemini-api/docs/deprecations,
+ai.google.dev/api/generate-content (GenerationConfig).
+
+### 8.4 Tests
+
+**Automated / dev PC:**
+
+| Check | Result |
+|---|---|
+| Build (each checkpoint, then clean at 1.1.0) | exit 0, no warnings (`-Wall -Wextra` on gemini.cpp: only the pre-existing `#pragma comment` note); GUI subsystem; no MinGW DLLs |
+| Golden check after `637d94a`, `79fcd42`, `c1c282f`, 1.1.0 | all three datasets byte-identical |
+| Error classification (synthetic replies) | 200, no answer, 400 API_KEY_INVALID, 403 API disabled, 404 model not found, 400 "no longer available", 429, 503, generic 400 → all classified as intended |
+| Model filter on 16 real IDs | accepts flash-lite/flash/-latest; rejects pro, preview, tts, image, gemma, transcribe, omni, nano-banana, pro-latest |
+| Invalid key (live) | "Google rejected this API key (HTTP 400)…", rejected flag set |
+| Developer's key (live) | valid; 10 compatible models; Automatic = `gemini-3.5-flash-lite` |
+| Fallback (live) | non-existent model injected first → real 404 → excluded, list refreshed, retry on `gemini-3.5-flash-lite` succeeded; exactly one retry |
+| Tier 1 + Tier 2 with structured output (live) | `gemini-3.5-flash-lite`: 50/50 notes, 3 findings; `gemini-2.5-flash-lite` (manual): 503 once (Google capacity), then 50/50 and 3 |
+| GUI, repo build | AI run on Programming1: summary signed `gemini-3.5-flash-lite`, Pair links work, per-pair AI note shown; AI Settings: saved key confirmed in background, dropdown filled, Automatic shown; manual choice saved/reloaded/reset (audit "AI MODEL SETTING"); invalid key via Save rejected, not saved, saved key intact |
+| Installer 1.1.0, only-for-me, silent | 13 files + uninstaller; version 1.1.0 in exe and Add/Remove; About "Version 1.1.0 (Thesis Release)"; installed AI Settings shows the discovered model |
+| Classroom location (simulated sync data) | synthetic dataset placed in `%LOCALAPPDATA%\CALSS\Classroom`; installed CALSS loads and analyzes it: 705 of 2,186, 35 students; folder ACL = profile default |
+| Uninstall | deleted 578 entries: program, 2 shortcuts, 559 under `…\CALSS\Classroom`, **nothing else** (checked line by line in the uninstall log). Kept: `gemini_model.txt`, Documents\CALSS Reports (report generated just before), old `Documents\CALSS_Classroom_Sync`, audit log, both credentials |
+| Reinstall | works; AI Settings again shows Automatic = gemini-3.5-flash-lite |
+| Secrets | no `AIza`, `ya29.` or refresh-token pattern in the exe; installer file list explicit |
+
+Test data created for this (dataset copies, a report, the model
+preference file) was deleted afterwards; audit entries remain by design.
+
+**Not tested here (needs people/accounts):** a real Classroom sync into
+the new folder (needs an approved test-user sign-in); the tester's new
+Gemini key (CALSS must pick a non-2.5 model for it); "no key" on a
+fresh account (code path unchanged since 1.0.0); real network outage
+and real 429 quota (classification only tested on synthetic replies);
+all-users install/uninstall of 1.1.0 (the 1.0.0 all-users path passed;
+the only installer change is `[UninstallDelete]`); another PC.
+
+### 8.5 Artifacts
+
+| File | Size (bytes) | SHA-256 |
+|---|---:|---|
+| `release\CALSS_Setup_1.1.0.exe` | 3,708,306 | `55D78824B5CAAC0C5721C106C9172012FB412677053006FF18BB82173686D1F2` |
+| `authorship.exe` 1.1.0 (inside) | — | `A3764F21F0135094B3FC71C14F8745F638B85076CEF079064E0D3ABF9558254C` |
+| `release\CALSS_SampleData_SYNTHETIC.zip` | 563,768 | `534D30B92CC79B04032B8DE555EF0EFC53E59276D771F8FF2DDAEEEC0949B263` (unchanged) |
+
+Send testers: `CALSS_Setup_1.1.0.exe`, `CALSS_Setup_1.1.0_SHA256.txt`,
+`CALSS_SampleData_SYNTHETIC.zip`, `release_docs\INSTALLER_TEST_CHECKLIST.txt`
+(updated for 1.1.0: model check in item 19, Classroom path in item 20,
+Classroom cleanup in item 22).
