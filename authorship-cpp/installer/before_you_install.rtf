@@ -1,0 +1,45 @@
+{\rtf1\ansi\ansicpg1252\deff0\deflang1033
+{\fonttbl{\f0\fswiss\fcharset0 Segoe UI;}}
+{\colortbl;\red128\green0\blue0;\red64\green64\blue64;}
+\viewkind4\uc1\pard\sa60\f0\fs18
+{\b\cf1 About CALSS\par}
+CALSS (Code Authorship Likelihood Scoring System) is an academic decision-support tool. It analyzes students' C programming submissions (.c files) for code similarity and coding-style (authorship-related) anomalies, and lists the submissions that may need a closer look by the instructor.\par
+\sa120\par\pard\sa60
+{\b\cf1 Important limitation\par}
+CALSS does {\b not} establish plagiarism, cheating or misconduct. A flagged pair or a score is a reason to review the work, not a finding. Results must be interpreted by an instructor together with other relevant academic evidence.\par
+\sa120\par\pard\sa60
+{\b\cf1 Intended users\par}
+Authorized instructors and university personnel. For this deployment, CALSS is installed only on approved instructor/admin computers in programming laboratories, not on student computers.\par
+\sa120\par\pard\sa60
+{\b\cf1 System requirements\par}
+\pard\fi-200\li200\sa40
+\bullet\tab 64-bit Windows 10 or Windows 11 (Setup does not run on other versions).\par
+\bullet\tab About 10 MB of disk space for the program, plus space for the submissions you analyze and the reports you create.\par
+\bullet\tab No other software to install. Minimum processor and memory (RAM) requirements have not been formally measured.\par
+\bullet\tab Installing for all users needs administrator approval once. CALSS itself runs without administrator rights.\par
+\pard\sa60\sa120\par\pard\sa60
+{\b\cf1 Optional online features\par}
+The core analysis works offline and without either feature.\par
+\pard\fi-200\li200\sa40
+\bullet\tab {\b Google Classroom sync} needs internet access and a Google account that you authorize in your browser. In this build only Google accounts approved by the CALSS team can sign in.\par
+\bullet\tab {\b Gemini AI explanations} need internet access and your own Google Gemini API key. When used, code from up to 50 flagged pairs per run is sent to Google's Gemini service.\par
+\pard\sa60\sa120\par\pard\sa60
+{\b\cf1 Where CALSS keeps data\par}
+\pard\fi-200\li200\sa40
+\bullet\tab Classroom downloads: %LOCALAPPDATA%\\CALSS\\Classroom (per Windows user; deleted when that user uninstalls CALSS).\par
+\bullet\tab Settings and the last session (folder path, class and student names; no scores or code): %LOCALAPPDATA%\\CALSS (per Windows user).\par
+\bullet\tab Gemini key and Google sign-in: Windows Credential Manager, entries starting with "CALSS/" (per Windows user).\par
+\bullet\tab Similarity reports: Documents\\CALSS Reports. Imported files: Documents\\CALSS Imports. CSV exports: wherever you save them.\par
+\bullet\tab Audit log, shared by all users of this computer: C:\\ProgramData\\CALSS\\audit.log.\par
+\bullet\tab CALSS may add a small index file (calss_sync_manifest.jsonl) to a folder it analyzes.\par
+\pard\sa60 Uninstalling keeps reports, imports, settings, the audit log and saved sign-ins.\par
+\sa120\par\pard\sa60
+{\b\cf1 Privacy and responsible use\par}
+Submissions, reports and the audit log can contain student names and academic work. Follow your university's data-handling policies. Do not share submissions, reports, API keys or sign-ins, and delete data you no longer need.\par
+\sa120\par\pard\sa60
+{\b\cf1 Shared Windows accounts\par}
+Anyone who signs in to the same Windows account can use that account's CALSS data, saved Gemini key, Google sign-in and last session. Windows Credential Manager does not separate people who share one Windows account. Where possible, each instructor should use a separate, authorized Windows account.\par
+\sa120\par\pard\sa60
+{\b\cf1 Installation permissions\par}
+Install CALSS only as approved by the laboratory administrator, from the official distribution, after checking the installer's SHA-256 checksum. CALSS is not code-signed, so Windows may show a SmartScreen warning, and an all-users installation asks for administrator approval (UAC). Administrative approval of this deployment does not remove these Windows prompts; follow your university IT policy.\par
+}

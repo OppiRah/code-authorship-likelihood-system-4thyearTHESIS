@@ -22,6 +22,9 @@
 ;     audit log, other per-user settings (incl. 1.3.0's workspace.json,
 ;     the "Continue previous session" file) and saved sign-ins
 ;     (Credential Manager) are kept.
+;   - Wizard (1.3.1): install-mode dialog (all users / only for me)
+;     -> Welcome -> Before You Install CALSS (before_you_install.rtf)
+;     -> folder -> tasks -> ready -> install -> finish.
 ; ─────────────────────────────────────────────────────────────
 
 #define Root        ".."
@@ -64,6 +67,11 @@ SetupIconFile={#Root}\ulccslogo.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName=CALSS {#AppVersion}
 WizardStyle=modern
+; "Before You Install CALSS" page (1.3.1, lab deployment): what CALSS
+; is and is not, requirements, optional online features, where data is
+; kept, shared accounts, SmartScreen/UAC. Inno's built-in information
+; page (shown after Welcome); title and labels set in [Messages].
+InfoBeforeFile=before_you_install.rtf
 Compression=lzma2
 SolidCompression=yes
 ; Close a running CALSS before replacing or removing its files.
@@ -76,6 +84,11 @@ UsedUserAreasWarning=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Messages]
+WizardInfoBefore=Before You Install CALSS
+InfoBeforeLabel=Please read this information about CALSS before you continue.
+InfoBeforeClickLabel=When you have read it, click Next to continue with Setup.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
