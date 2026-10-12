@@ -35,6 +35,9 @@
 // g_pairSeverityFilter, g_showAllFeaturesKeys (Checkpoint 2, Flagged
 // Pairs) and g_dnaTooltipPos (Checkpoint 3, Students) — see each
 // one's own inline comment below for which checkpoint added it.
+// (1.3.0: the first two of those, plus g_copyFindingsBtnRects, were
+// removed with the Flagged Pairs "Copy findings" button — three fewer
+// gui.cpp-defined externs than the counts above.)
 // (g_blockTabNames and g_backButtonRect also moved to
 // gui_students.cpp at Checkpoint 3, but aren't part of this count —
 // neither is extern-declared here, since nothing outside that file
@@ -164,8 +167,7 @@ using namespace Gdiplus;
 #define STAT_COUNTUP_STAGGER_MS 60
 #define TIMER_PAIR_EXPAND 1005
 #define PAIR_EXPAND_ANIM_MS 240
-#define TIMER_COPY_FEEDBACK 1006
-#define COPY_FEEDBACK_MS 1200
+// 1006 was TIMER_COPY_FEEDBACK (Copy findings, removed in 1.3.0)
 #define TIMER_SOURCE_SCROLL 1009   // MODAL_SOURCE_VIEW smooth scroll (gui.cpp)
 #define SOURCE_SCROLL_ANIM_MS 200
 #define toNarrow(w) toNarrowGC(w)
@@ -408,7 +410,7 @@ enum class FocusKind {
     StudentCard, BackButton, ReportButton, FlaggedAppearanceRow,
     UnclassifiedAssign, UnclassifiedDelete, AISummaryLink, LangNoticeToggle,
     OverviewGroupToggle, // dataIndex = index into flaggedGroups (1.2.0)
-    CollapsedPairRow, ExpandedPairHeader, ShowAllFeaturesToggle, CopyFindingsBtn,
+    CollapsedPairRow, ExpandedPairHeader, ShowAllFeaturesToggle,
     EmptyStateCard, CancelAnalysisBtn,
     DropdownAnchor,  // dataIndex = DropdownId; activates = opens it
     // Sync sheet — SyncPrimaryBtn/SyncSecondaryBtn are reused across
@@ -513,8 +515,6 @@ struct CollapsedPairRowRect { RECT r; int pairIdx; };
 struct ExpandedPairHeaderRect { RECT r; int pairIdx; };
 
 struct ShowAllFeaturesRect { RECT r; int key; };
-
-struct CopyFindingsBtnRect { RECT r; int pairIdx; };
 
 // "View source" button, one per side of a flagged pair's authorship
 // card (Flagged Pairs tab). isA picks PairAnalysisDisplay::pathA vs
@@ -623,9 +623,6 @@ extern RECT g_cancelAnalysisBtnRect;
 extern ClassesSortMode g_classesSortMode;
 extern RECT g_clearFilterButtonRect;
 extern std::vector<CollapsedPairRowRect> g_collapsedPairRowRects;
-extern std::vector<CopyFindingsBtnRect> g_copyFindingsBtnRects;
-extern int   g_copyFindingsFeedbackPairIdx;    // Checkpoint 2 of the ContentProc split
-extern DWORD g_copyFindingsFeedbackUntilTick;  // Checkpoint 2 of the ContentProc split
 extern std::vector<DnaCellHit> g_dnaCellHits;
 extern int g_dnaHoveredCell;
 extern POINT g_dnaTooltipPos; // Checkpoint 3 of the ContentProc split
@@ -745,7 +742,6 @@ void generateAndOpenStudentReport();
 void openStudentDetail(HWND hwnd, int studentIdx);
 void selectBlockTab(HWND hwnd, int tabIdx);
 void clearExactDuplicatesFilter(HWND hwnd);
-void copyFindingsForPair(HWND hwnd, int pairIdx);
 void openSourceViewForFlaggedPair(HWND hwnd, int pairIdx, bool isA);
 // Drops gui_students.cpp's per-run Classes cache (flag summaries,
 // blocks, manifest). Called from WM_ANALYSIS_COMPLETE.

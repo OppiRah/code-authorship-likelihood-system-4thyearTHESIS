@@ -28,6 +28,7 @@
 //         pairMatchesSeverityFilter(), g_expandedPairs,
 //         g_pairSeverityFilter, g_showAllFeaturesKeys,
 //         g_copyFindingsFeedbackPairIdx, g_copyFindingsFeedbackUntilTick
+//         (the last two removed in 1.3.0 with the Copy findings button)
 // Plus one new function, handleFlaggedPairsClick, consolidating
 // ContentProc's WM_LBUTTONDOWN hit-testing for this page.
 //
