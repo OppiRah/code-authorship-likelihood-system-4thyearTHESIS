@@ -19,8 +19,9 @@
 ;   - Uninstall removes the program, its shortcuts and the Google
 ;     Classroom working copies in %LOCALAPPDATA%\CALSS\Classroom (of the
 ;     Windows account running the uninstaller). Reports, imports, the
-;     audit log, other per-user settings and saved sign-ins (Credential
-;     Manager) are kept.
+;     audit log, other per-user settings (incl. 1.3.0's workspace.json,
+;     the "Continue previous session" file) and saved sign-ins
+;     (Credential Manager) are kept.
 ; ─────────────────────────────────────────────────────────────
 
 #define Root        ".."
@@ -152,6 +153,8 @@ begin
       '  - Documents\CALSS Reports  (similarity reports)' + #13#10 +
       '  - Documents\CALSS Imports  (files you imported)' + #13#10 +
       '  - ' + ExpandConstant('{commonappdata}') + '\CALSS\audit.log  (audit record)' + #13#10 +
+      '  - ' + ExpandConstant('{localappdata}') + '\CALSS  (settings and the last' + #13#10 +
+      '    session: folder path, class and student names, no scores or code)' + #13#10 +
       '  - Your saved Gemini key and Google sign-in (Windows Credential Manager,' + #13#10 +
       '    entries starting with "CALSS/").',
       mbInformation, MB_OK, IDOK);
