@@ -453,9 +453,31 @@ change (golden byte-identical):
 - Uninstall keeps `workspace.json` (settings policy); the uninstall
   message now lists `%LOCALAPPDATA%\CALSS` as kept.
 - Known, not changed: `g_expandedPairs` isn't cleared between runs.
-- **Status:** READY FOR FINAL CROSS-PC TESTING of
-  `CALSS_Setup_1.3.0.exe` (plus the open 1.1.0 checks: friend's key,
-  real Classroom sync + uninstall cleanup).
+- **Status:** tested and accepted by the developer on their own PC
+  (2026-10-12); superseded by 1.3.1 below.
+
+## CALSS 1.3.1 — laboratory deployment (2026-10-12) — DEVELOPMENT FROZEN
+
+Record: `docs/RELEASE_READINESS.md` §11. Final release before the
+defense; after this, only fixes the team explicitly asks for.
+- Lab head administrator approved installing CALSS on the
+  instructor/admin PC of each approved programming lab (team report).
+- Overview "Flagged pairs by class" sections all start collapsed
+  (`overviewGroupOpen` default `false`).
+- Installer: Inno's built-in `InfoBeforeFile` page "Before You Install
+  CALSS" (`installer/before_you_install.rtf`, `[Messages]` title).
+  Nothing else in `calss.iss` changed.
+- Package: `compile.bat` → `make_installer.bat` →
+  `make_lab_package.bat` (`tools/make_lab_package.py`, needs reportlab;
+  sources in `release_docs/lab/`) → `release\CALSS_1.3.1_Lab_Deployment\`
+  + `.zip`: installer, `SHA256SUMS.txt` (written last),
+  `INSTALLATION_GUIDE.pdf`, `README.txt`, `RELEASE_NOTES.txt`,
+  synthetic sample ZIP.
+- `CALSS_Setup_1.3.1.exe` 3,736,846 bytes, SHA-256
+  `947C8E2CA0A357117D756A44538798C1A7DCE12C4760879FAEBC0B001BA0BABA`;
+  unsigned; Defender: no threats. 1.0.0–1.3.0 installers kept.
+- Remaining checks are the administrator's (guide §17): all-users
+  install with UAC, SmartScreen handling, real lab PC.
 
 GUI test driving (Claude Code): launch the exe, post WM_LBUTTONDOWN/UP
 and WM_KEYDOWN to the `AuthorshipContent` child, capture with

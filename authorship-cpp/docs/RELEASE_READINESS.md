@@ -4,10 +4,10 @@ Status of branch `optimization-pass` as a release candidate. §1–§5 were
 written in Phase 4 as the input for the installer; §6 is the portable
 test package; §7 is the Phase 5 installer (CALSS 1.0.0); §8 is CALSS
 1.1.0 (Classroom storage, Gemini model discovery); §9 is CALSS 1.2.0
-(Overview AI summary organized by class); **§10 is CALSS 1.3.0
+(Overview AI summary organized by class); §10 is CALSS 1.3.0
 (Continue previous session; Comparative Authorship Analysis panel
-removed)** and is the current state wherever it differs from the
-earlier sections.
+removed); **§11 is CALSS 1.3.1 (laboratory deployment package)** and is
+the current state wherever it differs from the earlier sections.
 
 ## 1. What a release consists of
 
@@ -1020,3 +1020,138 @@ restore path loads folders itself; the dialog code is unchanged).
 Send testers: `CALSS_Setup_1.3.0.exe`, `CALSS_Setup_1.3.0_SHA256.txt`,
 `CALSS_SampleData_SYNTHETIC.zip`, `release_docs\INSTALLER_TEST_CHECKLIST.txt`
 (updated for 1.3.0: items 15 and 18a–18e, 23, 24).
+
+## 11. CALSS 1.3.1 — laboratory deployment package (2026-10-12)
+
+Branch `optimization-pass`. Commits: `eee8f51` (Overview class sections
+start collapsed), `fec6e9d` (version 1.3.1), `3e60f6c` (installer
+information page), then the lab package sources/builder and this
+record. Packaging-only release apart from the one display default; no
+methodology code touched.
+
+### 11.1 Context and scope
+
+The laboratory head administrator approved installing CALSS on the
+**instructor/admin computer at the front of each approved programming
+laboratory** (team report; the signed authorization is held by the
+team, not in the repository). Not on student PCs, every workstation,
+personal devices or unapproved computers. Distribution stays the team's
+Google Drive link. After this release development is frozen for the
+defense.
+
+### 11.2 Why 1.3.1 and not a rebuilt 1.3.0
+
+The 1.3.0 installer was tested by the developer and is kept unchanged
+(`F6059A8A…5B617B`). Both the Overview default and the installer bytes
+change, so the artifact gets a new identity rather than different bytes
+under the same name (fix-level bump per `version.h`'s rule). All older
+installers in `release\` are kept.
+
+### 11.3 Before You Install CALSS page
+
+Inno Setup's built-in `InfoBeforeFile` page — no custom wizard code:
+`installer/before_you_install.rtf` (RTF so headings render; ASCII
+only), title/labels via `[Messages]` (`WizardInfoBefore`,
+`InfoBeforeLabel`, `InfoBeforeClickLabel`). Content: about CALSS; the
+"does not establish plagiarism/misconduct" limitation; intended users
+and lab scope; requirements (64-bit Windows 10/11, ~10 MB — Inno's own
+figure is 9.8 MB —, minimum CPU/RAM *not measured*); optional Classroom
+(test users only) and Gemini (own key; code from up to 50 pairs sent);
+every data location (verified in `app_paths.cpp`, `audit_log.cpp`,
+`gemini.cpp`, `google_classroom.cpp`, `analysis_pipeline.cpp`,
+`workspace_state.cpp`); privacy; shared Windows accounts (Credential
+Manager does not separate people on one account); installation
+permissions (approval does not remove SmartScreen/UAC). No licence
+agreement page (none supplied by the university).
+
+Wizard flow (all-users): install-mode dialog → UAC → Welcome → **Before
+You Install CALSS** → Select Destination Location → Select Additional
+Tasks (desktop icon, ticked) → Ready → Installing → Completing (Launch
+CALSS). Verified by screenshots of the built installer (`/CURRENTUSER`,
+cancelled before installing): page title, labels and the whole
+scrolled text render; Next advances to the folder page. Back/Cancel not exercised (wizard closed by ending the process).
+
+Unchanged in `calss.iss`: AppId, modes, `{autopf}`, `[Files]`,
+`[Icons]`, `[Tasks]`, `[Run]`, `[UninstallDelete]` (still only
+`{localappdata}\CALSS\Classroom`), `PrepareAuditLog`, uninstall message.
+
+### 11.4 Lab deployment package
+
+Sources in `release_docs/lab/` (`README.txt`, `RELEASE_NOTES.txt`,
+`INSTALLATION_GUIDE.md`, placeholders `{{VERSION}}` `{{INSTALLER}}`
+`{{SIZE}}` `{{SHA256}}` `{{SAMPLE}}` `{{DATE}}`); builder
+`tools/make_lab_package.py` (Python 3 + reportlab 5.0.1), run by
+`make_lab_package.bat` after `make_installer.bat`. It copies the built
+installer byte for byte (never rebuilds/signs), cross-checks its hash
+against `CALSS_Setup_<v>_SHA256.txt`, fills the placeholders from the
+real file, renders the PDF, writes `SHA256SUMS.txt` **last**, then
+re-verifies the exact file list and every checksum, and zips the
+folder.
+
+`release\CALSS_1.3.1_Lab_Deployment\` (+ `.zip`):
+`CALSS_Setup_1.3.1.exe`, `SHA256SUMS.txt`, `INSTALLATION_GUIDE.pdf`
+(6 pages, 17 sections incl. SHA-256 and Defender steps, SmartScreen vs
+UAC vs Defender detection, code-signing explanation, data table,
+shared accounts, upgrade, uninstall/retention, troubleshooting, a
+14-item administrator acceptance checklist), `README.txt`,
+`RELEASE_NOTES.txt`, `CALSS_SampleData_SYNTHETIC.zip` (synthetic, for
+the acceptance check). No screenshots in the guide (none fabricated).
+No contact details were invented ("the channel through which you
+received this package").
+
+### 11.5 Signing, SmartScreen, Defender
+
+- `Get-AuthenticodeSignature`: installer and `authorship.exe`
+  **NotSigned**. No certificate bought; no self-signed workaround.
+- Microsoft Defender (platform 4.18.26080.4, signatures 1.459.682.0,
+  "no updates needed"), `MpCmdRun -Scan -ScanType 3`: installer, the
+  package folder and the package ZIP — **found no threats**. (Not a
+  guarantee; the guide says so.)
+- SmartScreen not observed: a locally built file has no download mark.
+  Expected on lab PCs after a Drive download.
+- Installer: no `[Registry]`, no Defender exclusions, no security or
+  policy changes; its only `Exec` is the existing `icacls` grant on
+  `audit.log`. Package text files contain no keys/tokens; the sample
+  ZIP holds only `.c`, `.jsonl` and its README.
+
+### 11.6 Tests (dev PC, Windows 11, 125 % DPI)
+
+| Check | Result |
+|---|---|
+| `compile.bat` clean build | exit 0; FileVersion 1.3.1, ProductVersion "1.3.1 (Thesis Release)" |
+| `tests\run_golden.bat` (after the Overview change and on 1.3.1) | all three datasets byte-identical (705 / 662 / 27,991 flagged); baselines not updated |
+| `tests\run_workspace_tests.bat` | 89 checks, 0 failed |
+| `make_installer.bat` | ISCC OK; the build of commit `3e60f6c` has the same hash as the earlier build of the identical uncommitted tree |
+| Silent install, only-for-me, desktop task | exit 0; 13 files + uninstaller; exe hash matches; Add/Remove "CALSS 1.3.1", publisher from VERSIONINFO; Start Menu + Desktop shortcuts |
+| Launch from Start Menu shortcut, Continue (test `workspace.json` → synthetic Programming1 copy) | 705 of 2,186, 35 students; AI "not requested" with the box ticked; audit `AI summary requested: No`, `Continuing previous session: Yes`; 0 TCP connections; BSCS-7 class section collapsed |
+| Classes / Flagged pairs tabs | both render (35 profiles; 705 pairs) |
+| Open AquinoAaron → close → Desktop shortcut → Continue | `workspace.json` page=classes, student=AquinoAaron, app_version 1.3.1; restored to the student page |
+| Silent uninstall | exit 0; program dir, uninstall key, both shortcuts, `%LOCALAPPDATA%\CALSS\Classroom` removed; `calss_gc_settings.json`, `gemini_model.txt`, `workspace.json`, audit log, both Credential Manager entries kept; message logged |
+| Upgrade 1.3.0 → 1.3.1 (only-for-me, silent) | one uninstall entry, one uninstaller, exe 1.3.1 with the 1.3.1 hash, `workspace.json` kept; uninstall clean |
+
+The developer's `%LOCALAPPDATA%\CALSS` (77 files incl. real Classroom
+downloads) was backed up first and restored after each uninstall —
+hash-identical 77/77 both times. Test dataset copy deleted. The test
+runs appended entries to the real `audit.log` (append-only by design).
+Incident: one scripted keystroke opened the "Browse For Folder" dialog
+(sidebar had focus); it was cancelled, nothing selected.
+
+**Not tested here:** the all-users install of 1.3.1 (needs UAC on the
+dev PC; installer sections for it unchanged since 1.0.0, which passed
+all-users), the wizard driven by a person end to end, SmartScreen,
+Windows 10, another PC, a second Windows account, a real lab computer.
+These are the administrator's acceptance checks (guide §17).
+
+### 11.7 Artifacts
+
+| File | Size (bytes) | SHA-256 |
+|---|---:|---|
+| `release\CALSS_Setup_1.3.1.exe` | 3,736,846 | `947C8E2CA0A357117D756A44538798C1A7DCE12C4760879FAEBC0B001BA0BABA` |
+| `authorship.exe` 1.3.1 | 4,831,172 | `7F88AB15574460D4E2BBF4E9F758FA38AF143E8400CBFF1F6E585B90137CD7BC` |
+| `CALSS_SampleData_SYNTHETIC.zip` | 563,768 | `534D30B92CC79B04032B8DE555EF0EFC53E59276D771F8FF2DDAEEEC0949B263` |
+
+The PDF, README and release notes embed the build date, so their hashes
+change whenever the package is rebuilt; `SHA256SUMS.txt` in the package
+is the record for those. Distribute the whole
+`CALSS_1.3.1_Lab_Deployment` folder (or its ZIP) via the Drive link and
+publish the installer's SHA-256 next to the link.
