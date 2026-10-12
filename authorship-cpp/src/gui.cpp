@@ -1507,6 +1507,7 @@ void togglePairExpanded(HWND hwnd, int pairIdx) {
         g_expandedPairs.insert(pairIdx);
         nowExpanded = true;
     }
+    workspaceNotePairFocus(pairIdx, nowExpanded);
     PairAnimEntry anim;
     anim.startTick = GetTickCount();
     anim.opening = nowExpanded;
@@ -2228,7 +2229,10 @@ void jumpToFlaggedPair(HWND hwnd, int pairIndex) {
     g_currentPage = PAGE_FLAGGED;
     g_filterExactDuplicatesOnly = false;
     g_pairSeverityFilter = SEV_FILTER_ALL;
-    if (pairIndex >= 0) g_expandedPairs.insert(pairIndex);
+    if (pairIndex >= 0) {
+        g_expandedPairs.insert(pairIndex);
+        workspaceNotePairFocus(pairIndex, true);
+    }
     g_selectedStudent = -1;
     g_scrollY = 0;
     g_pendingScrollPairIdx    = pairIndex;
@@ -3842,6 +3846,11 @@ static LRESULT CALLBACK ContentProc(HWND hwnd, UINT uMsg,
             DeleteDC(hdcMem);
 
             EndPaint(hwnd, &ps);
+
+            // Continue previous session (1.3.0): every navigation path
+            // ends in a repaint, so the workspace is checked here; the
+            // file is written only when what it would hold has changed.
+            workspaceSaveIfChanged();
             return 0;
         }
 
@@ -3914,11 +3923,20 @@ void onRunAnalysis(HWND hwnd) {
     // yes/no popup. Fixes broken item #12.
     bool useAI = g_hChkAiSummary &&
                  (SendMessageW(g_hChkAiSummary, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    startAnalysisRun(hwnd, useAI, false);
+}
+
+// Split out of onRunAnalysis (1.3.0) so "Continue previous session"
+// (gui_workspace.cpp) starts the identical run with AI forced off.
+void startAnalysisRun(HWND hwnd, bool useAI, bool restoringSession) {
+    if (!g_state.hasData || g_state.analysisRunning) return;
+    (void)hwnd;
 
     audit_log("ANALYSIS STARTED",
         "Data folder: " + toNarrowGC(g_state.dataFolder) + "\n" +
         "File count: " + std::to_string(g_state.fileCount) + "\n" +
-        "AI summary requested: " + std::string(useAI ? "Yes" : "No"));
+        "AI summary requested: " + std::string(useAI ? "Yes" : "No") +
+        (restoringSession ? "\nContinuing previous session: Yes" : ""));
 
     g_state.analysisRunning  = true;
     g_state.analysisComplete = false;
@@ -3959,6 +3977,14 @@ static void handleMenuCommand(HWND hwnd, int commandId) {
 
         case ID_BTN_RUN_ANALYSIS:
             onRunAnalysis(hwnd);
+            break;
+
+        case ID_BTN_RESUME_SESSION:
+            workspaceContinue(hwnd);
+            break;
+
+        case ID_BTN_RESUME_DISMISS:
+            workspaceDismissOffer();
             break;
 
         case ID_FILE_AI_SETTINGS:
@@ -4470,6 +4496,10 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg,
 
             updateUI();
 
+            // Continue previous session (1.3.0): re-apply the saved
+            // navigation now that the fresh results are in.
+            workspaceOnAnalysisComplete(g_hContent);
+
             // Log completion
             if (g_analysisResults.valid) {
                 audit_log("ANALYSIS COMPLETE",
@@ -4482,6 +4512,7 @@ static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg,
             return 0;
 
         case WM_DESTROY:
+            workspaceSaveIfChanged();  // normally a no-op: saved as navigation changed
             destroyFonts();
             PostQuitMessage(0);
             return 0;
@@ -4588,6 +4619,10 @@ int runGUI(HINSTANCE hInstance)
     // Force a frame recalculation so WM_NCCALCSIZE applies immediately
     SetWindowPos(g_hMainWindow, nullptr, 0, 0, 0, 0,
                  SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+
+    // Continue previous session (1.3.0): read workspace.json before the
+    // first paint so the empty state can offer it.
+    workspaceInitAtStartup();
 
     ShowWindow(g_hMainWindow, SW_SHOW);
     UpdateWindow(g_hMainWindow);

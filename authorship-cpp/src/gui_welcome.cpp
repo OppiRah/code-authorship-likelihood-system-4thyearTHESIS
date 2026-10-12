@@ -286,8 +286,14 @@ int drawWelcomeScreen(HDC hdc, int x, int y, int width) {
     int cardX  = x + (width - totalW) / 2;
     int cardY  = y + S(196);
 
+    // "Continue previous session" (1.3.0, gui_workspace.cpp) — only when
+    // a usable workspace.json exists; pushes the source cards down.
+    int resumeH = drawResumeSessionCard(hdc, x, y + S(184), width, totalW);
+    if (resumeH > 0) cardY = y + S(184) + resumeH + S(20);
+
     for (int i = 0; i < 3; ++i) {
-        bool hov = (g_hoveredEmptyCard == i);
+        // g_emptyCardRects may already hold the resume card's buttons.
+        bool hov = (g_hoveredEmptyCard == (int)g_emptyCardRects.size());
         RECT c = {cardX, cardY, cardX + cardW, cardY + cardH};
 
         drawCard(hdc, c, hov ? GRAY_800 : GRAY_850,

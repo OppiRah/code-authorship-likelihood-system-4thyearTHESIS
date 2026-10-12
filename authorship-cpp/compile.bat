@@ -27,6 +27,8 @@ g++ -std=c++17 ^
     src/gui_ai_settings.cpp ^
     src/secret_store.cpp ^
     src/app_paths.cpp ^
+    src/workspace_state.cpp ^
+    src/gui_workspace.cpp ^
     calss_res.o ^
     -I include/ ^
     -lwinhttp -lgdi32 -lcomdlg32 -lole32 -lshell32 -lcomctl32 -lws2_32 -lmsimg32 -lgdiplus -ladvapi32 ^

@@ -373,19 +373,42 @@ static void drawRosterRow(HDC hdc, int y, const RosterCols& c,
 // the student grid below it scrolls. Rebuilds g_blockTabNames and
 // g_blockTabRects fresh each call since the block list depends
 // entirely on what's currently synced.
-int drawBlockTabBar(HDC hdc, int x, int y, int width) {
-    const AnalysisResults& r = g_analysisResults;
+// The block chip names in display order. Shared by drawBlockTabBar and
+// the session restore (blockTabIndexForName / blockTabNameForIndex), so
+// a saved chip name resolves to the same index the bar will draw.
+static std::vector<std::string> computeBlockTabNames() {
     const StudentsTabCache& cache = studentsTabCache();
-
     std::set<std::string> uniqueBlocks(cache.blocks.begin(), cache.blocks.end());
-    g_blockTabNames.assign(uniqueBlocks.begin(), uniqueBlocks.end());
+    std::vector<std::string> names(uniqueBlocks.begin(), uniqueBlocks.end());
     // "General" (no block info) sorts last, real block names first
-    std::sort(g_blockTabNames.begin(), g_blockTabNames.end(),
+    std::sort(names.begin(), names.end(),
         [](const std::string& a, const std::string& b) {
             if (a == "General") return false;
             if (b == "General") return true;
             return a < b;
         });
+    return names;
+}
+
+int blockTabIndexForName(const std::string& name) {
+    if (name.empty()) return -1;
+    std::vector<std::string> names = computeBlockTabNames();
+    for (size_t i = 0; i < names.size(); ++i)
+        if (names[i] == name) return (int)i;
+    return -1;
+}
+
+std::string blockTabNameForIndex(int tabIdx) {
+    if (tabIdx < 0) return "";
+    std::vector<std::string> names = computeBlockTabNames();
+    return tabIdx < (int)names.size() ? names[tabIdx] : "";
+}
+
+int drawBlockTabBar(HDC hdc, int x, int y, int width) {
+    const AnalysisResults& r = g_analysisResults;
+    const StudentsTabCache& cache = studentsTabCache();
+
+    g_blockTabNames = computeBlockTabNames();
 
     SetBkMode(hdc, TRANSPARENT);
     HFONT oldFont = (HFONT)SelectObject(hdc, g_hFontBodyNew);

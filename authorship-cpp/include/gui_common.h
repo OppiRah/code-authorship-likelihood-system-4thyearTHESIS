@@ -143,6 +143,8 @@ using namespace Gdiplus;
 #define ID_BTN_GCLASSROOM       5003
 #define ID_BTN_RUN_ANALYSIS     5004
 #define ID_CHK_AI_SUMMARY       5005
+#define ID_BTN_RESUME_SESSION   5006   // "Continue previous session" card (1.3.0)
+#define ID_BTN_RESUME_DISMISS   5007   // ...its "Start new" button
 #define WM_ANALYSIS_PROGRESS    (WM_USER + 1)
 #define WM_ANALYSIS_COMPLETE    (WM_USER + 2)
 #define WM_SYNC_AUTHDONE        (WM_USER + 3)
@@ -686,6 +688,10 @@ void drawFocusRing(HDC hdcScreen, const RECT& r);
 std::wstring fmtPct(double v);
 GraphicsPath* makeRoundRectPath(float x, float y, float w, float h, float r);
 void onRunAnalysis(HWND hwnd);
+// The body of onRunAnalysis with the AI choice made by the caller.
+// restoringSession (1.3.0) only changes the audit-log entry; a restore
+// always passes useAI = false so reopening CALSS never spends Gemini quota.
+void startAnalysisRun(HWND hwnd, bool useAI, bool restoringSession);
 COLORREF pairSeverityColor(double combinedScorePct);
 const wchar_t* pairSeverityLabel(double combinedScorePct);
 std::wstring s2w(const std::string& s);
@@ -744,6 +750,11 @@ void openSourceViewForFlaggedPair(HWND hwnd, int pairIdx, bool isA);
 // Drops gui_students.cpp's per-run Classes cache (flag summaries,
 // blocks, manifest). Called from WM_ANALYSIS_COMPLETE.
 void invalidateStudentsTabCache();
+// Classes block chips by name (1.3.0 session restore): the chip list
+// drawBlockTabBar shows, computed from the current results rather than
+// from the last paint. -1 / "" when not found.
+int blockTabIndexForName(const std::string& name);
+std::string blockTabNameForIndex(int tabIdx);
 int drawFlaggedPairs(HDC hdc, int x, int y, int width);
 // Checkpoint 2 of the ContentProc split:
 bool handleFlaggedPairsClick(HWND hwnd, int mx, int scrolledY);
@@ -812,6 +823,16 @@ void showSplashScreen(HINSTANCE hInst);
 // Started by onRunAnalysis() (gui.cpp) via std::thread; the body and all
 // the analysis-progress state it drives live in gui_welcome.cpp.
 void analysisThread(std::wstring folder, bool useAI);
+
+// ── Continue previous session (gui_workspace.cpp, 1.3.0) ──────
+void workspaceInitAtStartup();                 // before the main window shows
+void workspaceContinue(HWND hwnd);             // card: Continue
+void workspaceDismissOffer();                  // card: Start new
+void workspaceOnAnalysisComplete(HWND content);// WM_ANALYSIS_COMPLETE, after state is set
+void workspaceNotePairFocus(int pairIdx, bool opened);
+void workspaceSaveIfChanged();                 // end of content paint + exit
+// Empty-state card above the source cards; returns its height (0 = none).
+int drawResumeSessionCard(HDC hdc, int x, int y, int width, int cardW);
 
 #endif // _WIN32
 #endif // GUI_COMMON_H
