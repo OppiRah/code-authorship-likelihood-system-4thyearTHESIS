@@ -1,9 +1,9 @@
-﻿CALSS 1.2.0 - INSTALLER TEST CHECKLIST (thesis team)
+﻿CALSS 1.3.0 - INSTALLER TEST CHECKLIST (thesis team)
 =====================================================================
 
 You received:
-  CALSS_Setup_1.2.0.exe            the installer
-  CALSS_Setup_1.2.0_SHA256.txt     its checksum
+  CALSS_Setup_1.3.0.exe            the installer
+  CALSS_Setup_1.3.0_SHA256.txt     its checksum
   CALSS_SampleData_SYNTHETIC.zip   synthetic test submissions
   INSTALLER_TEST_CHECKLIST.txt     this file
 
@@ -19,8 +19,8 @@ BEFORE INSTALLING
 -----------------
  1. Check the download is the official build. In PowerShell, in the
     folder with the installer:
-        Get-FileHash .\CALSS_Setup_1.2.0.exe -Algorithm SHA256
-    The hash must equal the first line of CALSS_Setup_1.2.0_SHA256.txt.
+        Get-FileHash .\CALSS_Setup_1.3.0.exe -Algorithm SHA256
+    The hash must equal the first line of CALSS_Setup_1.3.0_SHA256.txt.
     If it doesn't match, STOP and tell the developer.         ______
 
  2. Windows may warn about the download or show "Windows protected
@@ -36,13 +36,13 @@ INSTALL
  3. Run the installer. It asks "Install for all users" (needs an admin
     password once) or "Install for me only" (no admin). Pick ALL USERS
     if you can; note which one you used: ________          ______
- 4. Wizard shows the CALSS icon, "CALSS 1.2.0", install folder
+ 4. Wizard shows the CALSS icon, "CALSS 1.3.0", install folder
     C:\Program Files\CALSS (all users) or
     ...\AppData\Local\Programs\CALSS (me only). Leave "Create a
     desktop shortcut" ticked. Finish installing.           ______
  5. Start Menu has "CALSS"; Desktop has "CALSS"; both show the CALSS
     icon (dark square, white C-L-S mark).                  ______
- 6. Settings > Apps > Installed apps lists "CALSS 1.2.0".  ______
+ 6. Settings > Apps > Installed apps lists "CALSS 1.3.0".  ______
 
 
 FIRST RUN
@@ -50,7 +50,7 @@ FIRST RUN
  7. Start CALSS from the Start Menu. No black console window opens,
     no admin prompt appears, the loading screen and sidebar show the
     seal, and the taskbar button shows the CALSS icon.     ______
- 8. Help > About says "Version 1.2.0 (Thesis Release)".    ______
+ 8. Help > About says "Version 1.3.0 (Thesis Release)".    ______
  9. Help > Documentation shows the picture guide.          ______
 10. If you never saved a Gemini key on this Windows account:
     "Include AI summary" is unticked and greyed, with a "Set up AI..."
@@ -70,12 +70,37 @@ LOCAL ANALYSIS (no internet needed)
     Report" opens a report in the browser, and the file is in
     Documents\CALSS Reports.                               ______
 15. Flagged pairs tab: expand pair #1, "View source" shows the code.
-                                                           ______
+    The expanded pair ends with the "AI EVIDENCE NOTE" box: there is NO
+    maroon "COMPARATIVE AUTHORSHIP ANALYSIS" box and NO "Copy findings"
+    button under it (removed in 1.3.0), and no empty gap before the
+    next pair.                                             ______
 16. Flagged pairs > Export CSV: save it; it opens in Excel.  ______
 17. File > Import .c Files: pick 2 .c files. A success message shows
     and the files are copied to Documents\CALSS Imports.   ______
 18. Close CALSS, open it again from the Desktop shortcut: it starts
     normally.                                              ______
+
+
+CONTINUE PREVIOUS SESSION (new in 1.3.0, no internet needed)
+------------------------------------------------------------
+18a. After step 13 open Classes, click the "BSCS-7" chip, open any
+    student (write the name: ______________). Close CALSS.
+    Open CALSS: the welcome screen shows "CONTINUE PREVIOUS SESSION"
+    with Dataset "Programming1 . 553 files", Last location
+    "Classes -> BSCS-7 -> <that student>" and the time.     ______
+18b. Click Continue. The analysis runs again by itself and you land on
+    that student's page; a message says the session was restored with
+    the AI summary off. "Back to Classes" shows BSCS-7 selected.
+    (Even with "Include AI summary" ticked, no AI summary is made -
+    tick it and press Run analysis yourself if you want one.) ______
+18c. Flagged pairs: expand pair #3, close CALSS, open, Continue: you are
+    on Flagged pairs with pair #3 open and scrolled to.     ______
+18d. Close and open CALSS, click "Start new": the card goes away and
+    nothing is loaded.                                     ______
+18e. Rename the "Peña Test" folder to "Peña Test2", open CALSS, click
+    Continue: a "Previous session unavailable" message explains the
+    folder can't be found and offers "Select folder...". Close it -
+    CALSS works normally. Rename the folder back.           ______
 
 
 OPTIONAL ONLINE CHECKS
@@ -119,8 +144,14 @@ UNINSTALL AND REINSTALL
     %LOCALAPPDATA%\CALSS\Classroom is gone (paste that path into
     Explorer's address bar).                               ______
 23. Still present (kept on purpose): Documents\CALSS Reports,
-    Documents\CALSS Imports, C:\ProgramData\CALSS\audit.log.  ______
-24. Run the installer again, start CALSS, repeat step 13.  ______
+    Documents\CALSS Imports, C:\ProgramData\CALSS\audit.log, and
+    %LOCALAPPDATA%\CALSS\workspace.json (the saved session).  ______
+24. Run the installer again, start CALSS: the "CONTINUE PREVIOUS
+    SESSION" card is back. Continue works for the sample folder; if
+    your last session was a Google Classroom sync, it says those
+    downloads are no longer on this computer and offers "Sync
+    Classroom" instead (nothing opens unless you click it). Then repeat
+    step 13.                                               ______
 
 
 Your PC: Windows 10 / 11 (edition + version from Settings > System >

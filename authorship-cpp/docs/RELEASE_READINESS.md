@@ -3,9 +3,11 @@
 Status of branch `optimization-pass` as a release candidate. §1–§5 were
 written in Phase 4 as the input for the installer; §6 is the portable
 test package; §7 is the Phase 5 installer (CALSS 1.0.0); §8 is CALSS
-1.1.0 (Classroom storage, Gemini model discovery); **§9 is CALSS 1.2.0
-(Overview AI summary organized by class)** and is the current state
-wherever it differs from the earlier sections.
+1.1.0 (Classroom storage, Gemini model discovery); §9 is CALSS 1.2.0
+(Overview AI summary organized by class); **§10 is CALSS 1.3.0
+(Continue previous session; Comparative Authorship Analysis panel
+removed)** and is the current state wherever it differs from the
+earlier sections.
 
 ## 1. What a release consists of
 
@@ -621,7 +623,7 @@ An interviewed professor: *"…It would also be helpful if the analyses
 could be organized by subject or class, especially when working with
 different subjects."* The team clarified this means the AI analysis on
 the Overview. (The "continue where I left off" history part of the same
-feedback is **not** in this release.)
+feedback is **not** in this release; it came in 1.3.0, §10.)
 
 ### 9.2 Before / after
 
@@ -771,3 +773,250 @@ unchanged since 1.1.0).
 |---|---:|---|
 | `release\CALSS_Setup_1.2.0.exe` | 3,717,529 | `C160D29B2C844F668CCD6838466C8EDE22958BC3575CDA01056D09061C3453EF` |
 | `authorship.exe` 1.2.0 | 4,772,435 | `1C231D8CF32253556E1EE65FA7618C3C29D53239A7F46BBAFC08609986363E11` |
+
+
+## 10. CALSS 1.3.0 — Continue previous session; Comparative panel removed (2026-10-12)
+
+Branch `optimization-pass`. Commits: `48a0f29` (workspace state file +
+unit tests), `b5f2e18` (Continue previous session UI and restore),
+`9adfcf1` (Comparative Authorship Analysis panel removed), `5650c5c`
+(unreachable Copy findings code removed), `e0b0c2a` (version 1.3.0),
+`d6a6074` (installer uninstall message), then this documentation.
+No methodology code touched (tokenizer, features, KNN, similarity,
+weights, thresholds, pipeline all unchanged); golden check
+byte-identical. The 1.0.0–1.2.0 installers are kept unchanged.
+
+### 10.1 Why, and what "history" means here
+
+An interviewed professor: *"I would suggest adding a history feature,
+if it's not already included. It would be nice to be able to go back to
+previous work and continue where I left off."* The team scoped this to
+**the most recent session only**: close CALSS, reopen it, choose to
+continue, and land back on the same dataset and class / student / pair.
+Not implemented on purpose: a list of past analyses, multiple saved
+sessions, a database, or stored results. Reasons: it is what the
+professor described ("continue where I left off"), it fits the two
+weeks left, and storing old results would risk showing scores that no
+longer match the files.
+
+Separately, the team asked to remove the maroon **Comparative
+Authorship Analysis** panel (with its Copy findings button) at the end
+of each expanded flagged pair — redundant with the head-to-head
+comparison above it.
+
+### 10.2 What is saved
+
+`%LOCALAPPDATA%\CALSS\workspace.json` (per Windows user, the profile's
+default private ACL; same folder as `calss_gc_settings.json` and
+`gemini_model.txt`). A flat, versioned JSON object:
+
+| Field | Meaning |
+|---|---|
+| `format`, `version` | `"calss-workspace"`, 1. A higher version (newer CALSS) is ignored and left on disk. |
+| `app_version`, `saved_at` | CALSS version and local time that wrote it (display only) |
+| `dataset` | UTF-8 full path of the analyzed folder |
+| `file_count` | its `.c` file count then (only used to say "the folder now has N files") |
+| `page` | `overview` / `classes` / `flagged` |
+| `block`, `student` | Classes: the selected block chip name ("" = All) and student name ("" = roster) |
+| `pair_file_a`, `pair_file_b`, `pair_label` | Flagged Pairs: the last pair the professor opened (file names, matched in either order) and "NameA vs NameB" for the card |
+
+Never saved: scores or any analysis results, source code, Gemini key,
+Google tokens, AI text. Identifiers are names (the pipeline's own
+student identity, block names, pair file names), never list indices.
+Scroll position is not saved (the flagged pair is scrolled to; other
+pages open at the top).
+
+**When it is written:** `workspaceSaveIfChanged()` runs after every
+content paint and on exit, rebuilds the navigation above, and writes
+only when it differs from the last write — and only while the screen
+shows a finished, valid analysis of the loaded folder (never during a
+run, after a cancel/error, or after a new folder was selected but not
+yet analyzed — the previous valid session is kept then). Writes are
+atomic (`.tmp` + `MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH)`), so a
+crash mid-save leaves the old file. A failed write is not retried every
+paint.
+
+**Reading:** strict bounded parser (64 KB, strings/integers only,
+escapes and surrogate pairs decoded, control characters rejected, path
+≤ 4096 bytes, names ≤ 512). Malformed, invalid, future-version or
+missing → no card, CALSS starts normally; the file is left until the
+next finished analysis replaces it.
+
+### 10.3 Startup and restore lifecycle
+
+1. Startup (`workspaceInitAtStartup`, before the first paint): a usable
+   file → the empty-state screen shows **CONTINUE PREVIOUS SESSION**
+   above the three source cards: *Dataset* (folder name · N files),
+   *Last location* (e.g. `Classes → BSCS-7 → AquinoAaron`), *Last used*,
+   with **Continue** and **Start new**. Nothing happens automatically.
+   Mouse, hover and keyboard (Tab/Enter) use the existing empty-state
+   card mechanism.
+2. **Start new** hides the card for this launch; the file is unchanged
+   and is replaced by the next finished analysis.
+3. **Continue** checks the folder: exists, is a folder, has `.c` files
+   (same counter as Select folder). If not → a modal, the card goes
+   away, CALSS stays usable:
+   - missing / renamed / moved / inaccessible: *"The folder can't be
+     found…"* + shortened path, buttons **Select folder…** / Close;
+   - no `.c` files / not a folder: same modal, matching reason;
+   - inside `%LOCALAPPDATA%\CALSS\Classroom` and missing (e.g. after
+     uninstall): *"The Google Classroom submissions for "…" are no longer
+     on this computer…"*, buttons **Sync Classroom** / Close. Sync opens
+     only if clicked.
+4. Otherwise the folder is loaded exactly like Select folder and the
+   **normal analysis runs** (`startAnalysisRun`, the body of
+   `onRunAnalysis`) on the worker thread with the usual progress screen
+   and Cancel. Deterministic results are recalculated from the current
+   files; nothing from the old session is reused.
+5. On `WM_ANALYSIS_COMPLETE` (`workspaceOnAnalysisComplete`): if the run
+   is valid and for that folder, the saved page is opened and each saved
+   item is looked up by name in the new results — block chip
+   (`blockTabIndexForName`, same list as the chip bar), student
+   (`profiles[].name`), flagged pair (`jumpToFlaggedPair`: expanded and
+   scrolled to). All found → toast *"Previous session restored. The
+   analysis was re-run on the current files with the AI summary off."*
+   (+ *"The folder now has N files (it had M)."* if changed). Something
+   missing → **Session partly restored** modal listing it (e.g. *the
+   student "AquinoAaron"*, *the flagged pair … (it is no longer
+   flagged)*); the rest is restored. Cancelled / failed run → toast,
+   nothing restored.
+6. Closing CALSS during the restore run behaves like closing during any
+   run; the saved file is untouched (it is only written for finished
+   runs).
+
+### 10.4 Gemini, network and Classroom during restore
+
+- The restore run always uses `useAI = false`, even with a key saved
+  and "Include AI summary" ticked: **no Gemini request, no quota**,
+  works offline and with no key or no valid model. The Overview and
+  pair notes show the existing "AI summary not requested" states. To
+  get AI text the professor ticks the box and presses Run analysis (the
+  normal path). Old AI text is never shown — it was never saved.
+- No Google sign-in, Classroom refresh or sync is started; an existing
+  Classroom download folder is just read like any folder. The 1.1.0
+  storage policy (`%LOCALAPPDATA%\CALSS\Classroom`) is unchanged.
+- Audit log: the restore's `ANALYSIS STARTED` entry adds
+  `Continuing previous session: Yes` (and shows `AI summary requested:
+  No`). The workspace file itself is never logged.
+
+### 10.5 Privacy and uninstall
+
+`workspace.json` can reveal a folder path, class and student names. It
+is per Windows user, in the user's own `%LOCALAPPDATA%`, not packaged,
+not logged. Uninstall keeps it under the existing settings-retention
+policy (like `calss_gc_settings.json`); the uninstall message now lists
+`%LOCALAPPDATA%\CALSS` as kept ("settings and the last session: folder
+path, class and student names, no scores or code") so a professor on a
+shared PC knows to delete it. `[UninstallDelete]` is unchanged —
+still only the Classroom subfolder. After an uninstall removed the
+Classroom downloads, a reinstalled CALSS offers the old session and
+Continue shows the missing-Classroom modal (tested, 10.8).
+
+### 10.6 Comparative Authorship Analysis panel removed
+
+Removed from each expanded flagged pair: the maroon box, its
+"COMPARATIVE AUTHORSHIP ANALYSIS" heading, the interpretation text, the
+in-panel disclaimer and the **Copy findings** button
+(`drawComparativeBox`, `measureComparativeBoxHeight`; the box's height
+and gap left `pairExpandedHeight`/`drawFlaggedPairBlock`, so the band
+now ends 24 px below the AI Evidence Note — no empty area; scroll
+extents and hit rects follow). Copy findings had no other entry point,
+so its code went too (`copyFindingsForPair`, `buildFindingsText`,
+`copyTextToClipboardW`, its rects/feedback globals/timer and
+`FocusKind::CopyFindingsBtn`) — no invisible click or Tab target
+remains. **Kept:** the AI EVIDENCE NOTE (unchanged, incl. its no-key /
+not-requested / failed states), the comparison table, View source, all
+scores, the page footer disclaimer, CSV export, the per-student report.
+`PairAnalysisDisplay::interpretation` is still computed by the pipeline
+(not displayed anywhere now). Gemini prompts/schemas untouched.
+
+### 10.7 Code
+
+| File | Change |
+|---|---|
+| `include/workspace_state.h`, `src/workspace_state.cpp` (new) | file format, parser, atomic save, pure decisions (`classifyDataset`, `pathIsInside`, `findByName`, `findPair`, `describeLocation`) |
+| `src/gui_workspace.cpp` (new) | startup card, Continue / Start new, restore after analysis, save-on-change |
+| `src/gui.cpp` | `onRunAnalysis` → `startAnalysisRun(useAI, restoring)`; hooks in `WM_ANALYSIS_COMPLETE`, content `WM_PAINT`, `WM_DESTROY`, `runGUI`, `togglePairExpanded`, `jumpToFlaggedPair`; menu ids 5006/5007; Copy findings code removed |
+| `src/gui_students.cpp` | `computeBlockTabNames()` shared by the chip bar and `blockTabIndexForName` / `blockTabNameForIndex` |
+| `src/gui_welcome.cpp` | card above the source cards; hover index counts the card's buttons |
+| `src/gui_flagged.cpp` | Comparative box removed |
+| `include/gui_common.h` | prototypes / ids; Copy findings declarations removed |
+| `compile.bat` | + `src/workspace_state.cpp`, `src/gui_workspace.cpp` (24 units) |
+| `tests/workspace_state_test.cpp`, `tests/run_workspace_tests.bat` (new) | 89 unit checks |
+| `include/version.h` | 1.3.0 |
+| `installer/calss.iss` | uninstall message line only |
+
+### 10.8 Tests
+
+GUI tests were driven by a script (launch the exe, post clicks/keys to
+the content window, capture the window with `PrintWindow`) and checked
+on the screenshots, on synthetic data copied to a temp folder (the
+committed datasets were not touched).
+
+| Check | Result |
+|---|---|
+| Build (`compile.bat`, each checkpoint, `-Wall -Wextra` on changed files) | exit 0, no new warnings; imports only Windows DLLs + UCRT |
+| Golden check after the session work and on the final tree | all three datasets byte-identical (705 / 662 / 27,991 flagged) |
+| `tests\run_workspace_tests.bat` | 89 checks, 0 failed |
+| Fresh launch, no file | normal welcome screen, no card |
+| Analyze → Overview → close/reopen → Continue | Overview, re-run (705 of 2,186), toast; 0 TCP connections from the process during the restore (key saved, AI box ticked) |
+| Classes → BSCS-7 → AquinoAaron → close/reopen | card "Classes → BSCS-7 → AquinoAaron"; Continue lands on the student; Back shows BSCS-7 selected |
+| Flagged Pairs, expand pair #3 → close/reopen → Continue | Flagged Pairs, pair #3 expanded and scrolled to |
+| Start new | card hidden, nothing loaded, file byte-identical |
+| Dataset folder renamed | "Previous session unavailable" + Select folder…; app usable |
+| 16 files of one student removed | re-run (537 files, 34 students, 650 flagged); "Session partly restored" names the student and 537 vs 553; block restored |
+| Corrupt file (binary garbage), future version 2 | no card, no crash, file left in place |
+| Restore with AI on/no network | restore never requests AI (audit `AI summary requested: No`); no connections observed. Not tested with the network adapter actually disabled. |
+| Classroom-owned folder (synthetic copy inside `…\CALSS\Classroom`) | restores (662 of 1,740), no connections; deleted → missing-Classroom modal, nothing recreated or opened |
+| Normal Run analysis after a restore | saves the new state (Overview) |
+| Flagged Pairs after removal | panel and button gone, AI note kept, no gap; clicking where the button was does nothing; next pair expands; View source opens; Tab cycling works |
+| Help > About | "Version 1.3.0 (Thesis Release)" |
+| Installed 1.3.0 (only-for-me, silent) | 15 files (13 + uninstaller), no workspace/credentials/logs; exe hash matches; restores student and flagged pair |
+| Uninstall | program, shortcut, uninstall entry, Classroom folder removed; `workspace.json`, settings, audit log, both Credential Manager entries kept; message lists the kept folder |
+| Reinstall | card back; Classroom-session → missing-Classroom modal; normal restore works |
+
+The developer's real Classroom downloads were backed up before the
+uninstall tests and restored afterwards (74/74 files hash-identical);
+test files and the test `workspace.json` were deleted.
+
+**Incidents during testing.** (1) A test script failed to untick "Include
+AI summary" and started one normal AI run on the developer's key
+(synthetic data); it was closed during "Generating AI summary" — normal
+app behavior for a ticked box, not a restore path. (2) In 1 of 14
+keyboard (Tab) stress runs the test instance exited after its restore
+had completed; no crash was recorded by Windows and 13 repeat runs with
+varied timing did not reproduce it. Watch for it in cross-PC testing.
+
+**Not tested here:** another PC; the all-users install of 1.3.0
+(installer otherwise unchanged since 1.1.0); a real Classroom sync
+followed by restore; restore with the network adapter disabled;
+selecting a folder through the folder dialog in the scripted runs (the
+restore path loads folders itself; the dialog code is unchanged).
+
+### 10.9 Limitations
+
+- One session only, by design; starting a new analysis replaces it.
+- Restore re-runs the whole analysis (seconds for a class; ~70 s for
+  the 2,973-file four-block set) — correct but not instant.
+- AI text is not restored; it needs a normal Run analysis with the box
+  ticked (two Gemini requests, as before).
+- Scroll position, filters, search text, sort order and which other
+  pairs were expanded are not restored.
+- A dataset on a disconnected drive shows the "can't be found" modal;
+  reconnecting the drive and reopening CALSS offers it again.
+- `PairAnalysisDisplay::interpretation` is still computed but no longer
+  shown anywhere.
+- Pre-existing, not changed: `g_expandedPairs` is not cleared between
+  runs in one CALSS session (indices from the previous run stay
+  expanded).
+
+### 10.10 Artifacts
+
+| File | Size (bytes) | SHA-256 |
+|---|---:|---|
+| `release\CALSS_Setup_1.3.0.exe` | 3,734,986 | `F6059A8AE9CFF609CB729750A2670B69A9BEBCD9849EE0D2AE78BB363F5B617B` |
+| `authorship.exe` 1.3.0 | 4,831,172 | `7A9D5B11E3A9159476B2D35BC7E551B54CEC923BC4AF5A69ED80D74CE70FD90A` |
+
+Send testers: `CALSS_Setup_1.3.0.exe`, `CALSS_Setup_1.3.0_SHA256.txt`,
+`CALSS_SampleData_SYNTHETIC.zip`, `release_docs\INSTALLER_TEST_CHECKLIST.txt`
+(updated for 1.3.0: items 15 and 18a–18e, 23, 24).

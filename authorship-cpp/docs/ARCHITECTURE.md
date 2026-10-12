@@ -27,6 +27,15 @@ grouped by layer, not alphabetically.
 >   summary was removed), capped at the 50 highest-scoring flagged pairs
 >   (`GEMINI_MAX_PAIRS`).
 > - Regression check: `tests/run_golden.bat` (see `tests/README.md`).
+>
+> **1.3.0 (2026-10-12):** new `workspace_state.h/.cpp` (the "Continue
+> previous session" file, `%LOCALAPPDATA%\CALSS\workspace.json`, with
+> unit tests in `tests/run_workspace_tests.bat`) and `gui_workspace.cpp`
+> (startup card, restore by re-running the analysis with AI off,
+> save-on-change). `onRunAnalysis`'s body is now `startAnalysisRun`.
+> The Flagged Pairs "Comparative authorship analysis" box and its Copy
+> findings button are gone (`drawComparativeBox`, `copyFindingsForPair`
+> and friends removed). Details: `docs/RELEASE_READINESS.md` §10.
 
 ---
 
@@ -45,6 +54,7 @@ grouped by layer, not alphabetically.
 | `google_classroom.h`/`.cpp` | Integration | OAuth + Classroom API + submission download |
 | `secret_store.h`/`.cpp` | Integration | Gemini key + Classroom token in Windows Credential Manager |
 | `app_paths.h`/`.cpp` | Support | Exe/AppData/Documents locations; UTF-8 path helpers |
+| `workspace_state.h`/`.cpp` | Support | Most-recent-session file: format, strict parser, atomic save, restore decisions (1.3.0) |
 | `results_data.h` | Data | GUI-facing display structs; the pipeline↔GUI contract |
 | `audit_log.h`/`.cpp` | Data | Timestamped audit log + SHA-256 |
 | `gui_common.h` | GUI | Shared contract binding all `gui_*.cpp` files together |
@@ -58,6 +68,7 @@ grouped by layer, not alphabetically.
 | `gui_overview.cpp` | GUI | Overview tab (stats, AI cross-pair findings) |
 | `gui_flagged.cpp` | GUI | Flagged Pairs tab |
 | `gui_students.cpp` | GUI | Students/Classes tab |
+| `gui_workspace.cpp` | GUI | "Continue previous session": startup card, restore after analysis, save on change (1.3.0) |
 | `gui.h` | GUI | One-function public entry point (`runGUI`) |
 
 ---
@@ -853,8 +864,9 @@ constants).
   card: score, progress bar (width-animated on expand), reliability note,
   compact Style DNA strip, the Deviations block, and the "Show all 14
   features" disclosure.
-- `drawComparativeBox` — the maroon-tinted "COMPARATIVE AUTHORSHIP
-  ANALYSIS" box with its Copy-findings clipboard button.
+- (`drawComparativeBox` — the maroon "COMPARATIVE AUTHORSHIP ANALYSIS"
+  box with its Copy findings button — was removed in 1.3.0; an expanded
+  pair now ends with the AI evidence note.)
 - `resolvePairNarrativeText`/`drawPairNarrative` — the Tier-1 AI evidence
   note per pair, three-state (success/skipped/failed) handling mirroring
   `drawAISummary`'s pattern.
@@ -871,7 +883,8 @@ constants).
   content is the practical equivalent).
 - `handleFlaggedPairsClick` — the six click targets on this tab
   (collapsed-row expand, expanded-header collapse, "Show all 14
-  features" toggle, Copy findings, severity chip, clear-filter),
+  features" toggle, Copy findings [removed in 1.3.0], severity chip,
+  clear-filter; View source was added later),
   consolidated from what were already contiguous `WM_LBUTTONDOWN` blocks
   in `gui.cpp` — unlike Checkpoint 1's Overview blocks, no reordering was
   needed here.

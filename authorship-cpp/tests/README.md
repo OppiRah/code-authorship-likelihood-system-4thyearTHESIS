@@ -64,6 +64,20 @@ First load of a folder with subfolders is much slower (four blocks:
 ~41 s just to load) because `autoTagManualBlock` re-reads the whole
 `calss_sync_manifest.jsonl` once per file — not addressed by PF-1.
 
+## Workspace-state unit tests (1.3.0)
+
+```
+tests\run_workspace_tests.bat
+```
+
+Builds `workspace_state_test.cpp` against `src/workspace_state.cpp`
+(the "Continue previous session" file) into `%TEMP%` and runs it:
+round trip incl. UTF-8/quotes/backslashes, malformed and oversized
+input, future format version, invalid fields, fields dropped that don't
+belong to the saved page, atomic save/replace, corrupt/empty files, and
+the restore decisions (dataset checks, Classroom path test, lookup by
+name, pair lookup in either order). 89 checks.
+
 ## GUI smoke checklist (manual)
 
 CALSS has no automated GUI tests. Run this by hand before merging a
@@ -96,8 +110,9 @@ account or a second PC; everything else needs only the repo.
 8. Classes: roster rows, sort dropdown, block sub-tabs; open a student:
    Style DNA strip, submissions, flagged appearances, deep link to a pair,
    Back.
-9. Flagged Pairs: list, severity filter, search, expand a pair, Copy
-   findings.
+9. Flagged Pairs: list, severity filter, search, expand a pair: it ends
+   with the AI EVIDENCE NOTE (no Comparative Authorship Analysis box or
+   Copy findings button since 1.3.0, and no empty space below the note).
 10. View source from a flagged pair: single file opens; compare mode has
     gold match and red style highlights; A/B tabs, Prev/Next, N/P/H keys,
     Tab, mouse wheel and Up/Down/PgUp/PgDn/Home/End scrolling; close.
@@ -134,6 +149,20 @@ account or a second PC; everything else needs only the repo.
 19. Close and reopen CALSS: the AI key and Classroom sign-in are
     remembered (Credential Manager); no first-run notices reappear.
 20. Help > Documentation carousel: all slides, Next/Prev/Skip.
+20a. **Continue previous session (1.3.0).** Run an analysis, open
+    Classes > a block chip > a student, close CALSS, reopen: the welcome
+    screen shows "CONTINUE PREVIOUS SESSION" with the dataset, "Classes →
+    block → student" and the time. Continue: the analysis re-runs with
+    the AI summary off (even if the box is ticked) and lands on that
+    student; Back to Classes shows that block selected. Repeat with an
+    expanded flagged pair (it comes back expanded and scrolled to) and
+    with Overview. "Start new" hides the card and changes nothing.
+20b. Rename the dataset folder and Continue: "Previous session
+    unavailable" with "Select folder…"; nothing crashes. Remove one
+    student's files and Continue: "Session partly restored" names the
+    student and the new file count. Open
+    `%LOCALAPPDATA%\CALSS\workspace.json` in Notepad and break it:
+    CALSS starts normally without the card.
 21. Resize the window and drag the sidebar edge: no stale paint.
 22. **[you]** Run `make_release.bat`, copy `release\CALSS\` to another
     Windows 10/11 PC without MinGW (or another Windows user account), and

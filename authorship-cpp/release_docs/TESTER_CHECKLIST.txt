@@ -55,8 +55,8 @@ B. LOCAL ANALYSIS (AI off)
 14. Classes: roster rows, sort dropdown, block sub-tabs. Open a student:
     Style DNA strip, submissions, flagged appearances; click a flagged
     appearance (jumps to the pair); Back.
-15. Flagged pairs: scroll, Filter dropdown, search box, expand a pair,
-    Copy findings (paste into Notepad to check).
+15. Flagged pairs: scroll, Filter dropdown, search box, expand a pair
+    (it ends with the AI evidence note; no Copy findings button).
 16. View source on a flagged pair: both files show; compare highlights;
     A/B tabs, Prev/Next, mouse wheel, PgUp/PgDn/Home/End; close.
 17. View > View Student Profiles shows a hint to use the Classes tab.

@@ -72,6 +72,7 @@ after the optimization pass — see that section below):
 | `src/gui_welcome.cpp` | ~500 |
 | `src/gui_assign_dialog.cpp` | ~350 |
 | `src/gui_ai_settings.cpp` | ~300 |
+| `src/gui_workspace.cpp` (Continue previous session, 1.3.0) | ~370 |
 
 `include/gui_common.h` (~820 lines) holds the shared contract (extern
 globals, shared types/constants, function prototypes) for all of the
@@ -327,7 +328,8 @@ still `int main()`. stdout/stderr go nowhere — don't rely on them.
 be added manually. (2026-10-02: added `src/gui_ai_settings.cpp`,
 `src/secret_store.cpp`, and `-ladvapi32` for Credential Manager; then
 `src/app_paths.cpp`, `src/analysis_pipeline.cpp`,
-`src/student_report.cpp`, `src/gui_source_view.cpp` — 22 units.)
+`src/student_report.cpp`, `src/gui_source_view.cpp` — 22 units;
+1.3.0: `src/workspace_state.cpp`, `src/gui_workspace.cpp` — 24 units.)
 Since Phase 5 `compile.bat` first runs `windres -I include -O coff
 res/calss.rc -o calss_res.o` and links `calss_res.o` (icon, manifest,
 VERSIONINFO).
@@ -339,7 +341,8 @@ VERSIONINFO).
 `gui_ai_settings.cpp`, `gui_common.h`, `main.cpp`,
 `analysis_pipeline.cpp`, `student_report.cpp`, `app_paths.h`,
 `results_data.h`, `gemini.h`/`gemini.cpp`, `compile.bat`,
-`tests/run_golden.bat`.
+`tests/run_golden.bat`, `workspace_state.h`/`.cpp`,
+`gui_workspace.cpp`, `tests/run_workspace_tests.bat`.
 
 ## Assets
 `ulccslogo.png` — in-app seal (sidebar). `ulcclogoloadingscreen.png` —
@@ -421,9 +424,47 @@ I left off" history idea is NOT implemented.
   with 2+ classes), FLAGGED PAIRS BY CLASS (collapsible; rows reuse
   `g_aiSummaryLinkRects` -> `jumpToFlaggedPair`). Deterministic parts
   render with AI off/failed.
+- **Status:** superseded by 1.3.0 below.
+
+## CALSS 1.3.0 (2026-10-12)
+
+Record: `docs/RELEASE_READINESS.md` §10. Two changes, no methodology
+change (golden byte-identical):
+- **Continue previous session** (professor: "continue where I left
+  off"; team scope: the ONE most recent session, no history list).
+  `%LOCALAPPDATA%\CALSS\workspace.json` (`workspace_state.h/.cpp`,
+  strict bounded parser, atomic `.tmp`+`MoveFileExW` save, format
+  version 1) holds only the folder path, file count and navigation BY
+  NAME (page; Classes block chip + student; last opened flagged pair's
+  two file names). No scores/results/code/keys. `gui_workspace.cpp`:
+  empty-state card (Continue / Start new); Continue checks the folder,
+  loads it and runs the normal analysis via `startAnalysisRun(useAI =
+  false)` (never Gemini, never Classroom/OAuth), then
+  `workspaceOnAnalysisComplete` re-applies navigation by name and lists
+  anything missing ("Session partly restored"). Missing folder /
+  missing Classroom download -> modal with Select folder… / Sync
+  Classroom. Saved by `workspaceSaveIfChanged()` after each content
+  paint + on exit, only when changed and only for a finished valid run
+  of the loaded folder. Unit tests: `tests\run_workspace_tests.bat`.
+- **Flagged Pairs:** the maroon "Comparative Authorship Analysis" box
+  and its Copy findings button are removed (and the now-unreachable
+  copy-findings code). AI Evidence Note kept;
+  `PairAnalysisDisplay::interpretation` still computed, not shown.
+- Uninstall keeps `workspace.json` (settings policy); the uninstall
+  message now lists `%LOCALAPPDATA%\CALSS` as kept.
+- Known, not changed: `g_expandedPairs` isn't cleared between runs.
 - **Status:** READY FOR FINAL CROSS-PC TESTING of
-  `CALSS_Setup_1.2.0.exe` (plus the open 1.1.0 checks: friend's key,
+  `CALSS_Setup_1.3.0.exe` (plus the open 1.1.0 checks: friend's key,
   real Classroom sync + uninstall cleanup).
+
+GUI test driving (Claude Code): launch the exe, post WM_LBUTTONDOWN/UP
+and WM_KEYDOWN to the `AuthorshipContent` child, capture with
+`PrintWindow`, and make the driving process DPI-aware (this PC is 125%:
+content client coords = screenshot − (375, 50)). Never post Run
+analysis (5004) without first unticking "Include AI summary" — the dev
+PC has a real Gemini key. Uninstalling deletes
+`%LOCALAPPDATA%\CALSS\Classroom`, which may hold the developer's real
+synced submissions: back it up first.
 
 Claude Code note: in this environment `cmd /c compile.bat` fails with
 "not recognized"; run batch files by full quoted path
