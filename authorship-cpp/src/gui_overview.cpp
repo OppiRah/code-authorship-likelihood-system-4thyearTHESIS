@@ -929,13 +929,13 @@ static std::vector<RECT> g_overviewHoverRects;               // hoverable rows f
 
 void resetOverviewGroups() { g_overviewGroupOpen.clear(); }
 
-// Default: all classes open when there are up to three; otherwise only
-// the first, so a long class list stays scannable.
+// Default: every class starts collapsed; the professor opens the ones
+// they want.
 static bool overviewGroupOpen(size_t idx) {
     const auto& groups = g_analysisResults.flaggedGroups;
     auto it = g_overviewGroupOpen.find(groups[idx].key);
     if (it != g_overviewGroupOpen.end()) return it->second;
-    return groups.size() <= 3 || idx == 0;
+    return false;
 }
 
 void toggleOverviewGroup(HWND hwnd, int idx) {
