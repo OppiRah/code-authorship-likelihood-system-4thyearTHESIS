@@ -1,0 +1,64 @@
+CALSS {{VERSION}} - Release notes
+Package built {{DATE}}
+=====================================================================
+
+CHANGES IN {{VERSION}} (since 1.3.0)
+------------------------------------
+- Overview: the "Flagged pairs by class" sections now all start
+  collapsed; click a class to open it. Display only.
+- Installer: new "Before You Install CALSS" information page after the
+  Welcome page (what CALSS is and is not, intended users and lab scope,
+  requirements, optional online features, where data is kept, privacy,
+  shared Windows accounts, SmartScreen/UAC).
+- Laboratory deployment package: this README, the installation guide
+  (PDF), checksums and synthetic sample data.
+
+No change to the analysis: tokenization, similarity, the 14 style
+features, KNN (K=3), weights and thresholds are unchanged. The team's
+regression check gives byte-identical results to 1.3.0 on the synthetic
+datasets.
+
+WHAT THE RELEASE CONTAINS (unchanged from earlier versions)
+-----------------------------------------------------------
+Folder and file import, Google Classroom sync (optional), pairwise
+token similarity and stylometric analysis, Overview / Classes / Flagged
+pairs views, side-by-side source view, CSV export, per-student
+similarity reports, optional Gemini AI explanations, "Continue previous
+session" (most recent session only, re-analyzed with AI off), audit
+log.
+
+STATUS OF THIS BUILD
+--------------------
+- NOT code-signed. Windows may show SmartScreen and an "unknown
+  publisher" UAC prompt. Verify the SHA-256 (SHA256SUMS.txt).
+- Not certified or endorsed by the university beyond the laboratory
+  administrator's approval of this deployment.
+- Tested by the thesis team on Windows 11 development and team
+  computers. Windows 10 and the minimum hardware have not been formally
+  tested.
+
+KNOWN LIMITATIONS
+-----------------
+- Google Classroom sign-in is in Google's "Testing" mode: only accounts
+  the team has added can sign in, and sign-in expires after about 7
+  days. It uses http://localhost:8080; a program on port 8080 blocks it.
+- If fetching courses fails after sign-in, the course list is empty
+  (no error message). The sync screen goes straight to browser sign-in
+  when the saved sign-in has expired. There is no sign-out button.
+- Networks that need a proxy set only in Windows Settings may block AI
+  and Classroom.
+- First load of a large folder tree is slow (tens of seconds for about
+  3,000 files).
+- Overview "High similarity" and the Flagged pairs "High" filter count
+  different things, so the numbers can differ.
+- Expanded pairs in Flagged pairs stay expanded after a re-run within
+  the same CALSS session.
+- "Continue previous session" re-runs the analysis (not instant) and
+  does not restore AI text, filters, search or scroll position.
+- Uninstall removes Classroom downloads only for the Windows account
+  that runs it; reports, imports, settings, the last session, the audit
+  log and saved sign-ins are kept.
+- Shared Windows accounts share all of that account's CALSS data and
+  saved sign-ins.
+- An "only for me" installation does not prepare the shared audit log;
+  on a shared computer use "Install for all users".
