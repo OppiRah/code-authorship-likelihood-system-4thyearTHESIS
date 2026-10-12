@@ -14,10 +14,13 @@
 // (removed on uninstall) + Gemini model discovery / model dropdown.
 // 1.2.0 = Overview AI summary organized by class (professor feedback):
 // notable cases, collapsible class sections, per-class AI summaries.
+// 1.3.0 = "Continue previous session" (most recent workspace only,
+// re-analyzed with AI off) + Comparative Authorship Analysis panel
+// removed from Flagged Pairs.
 // ─────────────────────────────────────────────────────────────
 
 #define CALSS_VERSION_MAJOR 1
-#define CALSS_VERSION_MINOR 2
+#define CALSS_VERSION_MINOR 3
 #define CALSS_VERSION_PATCH 0
 
 #define CALSS_STR2_(x) #x
