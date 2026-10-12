@@ -17,11 +17,13 @@
 // 1.3.0 = "Continue previous session" (most recent workspace only,
 // re-analyzed with AI off) + Comparative Authorship Analysis panel
 // removed from Flagged Pairs.
+// 1.3.1 = Overview class sections start collapsed; installer gains a
+// "Before You Install CALSS" information page (lab deployment).
 // ─────────────────────────────────────────────────────────────
 
 #define CALSS_VERSION_MAJOR 1
 #define CALSS_VERSION_MINOR 3
-#define CALSS_VERSION_PATCH 0
+#define CALSS_VERSION_PATCH 1
 
 #define CALSS_STR2_(x) #x
 #define CALSS_STR_(x)  CALSS_STR2_(x)
