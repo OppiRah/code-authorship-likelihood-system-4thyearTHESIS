@@ -584,109 +584,6 @@ static int drawPairComparison(HDC hdc, int x, int y, int width,
     return y - startY;
 }
 
-// Draw comparative authorship analysis box, including the "Copy
-// findings" clipboard button (spec §5.9: "Add a small Copy findings
-// button that puts a plain-text summary of that pair on the
-// clipboard"). pairIdx is the stable index into flaggedPairs (for the
-// hit-rect vector / feedback state); pairNumber is the on-screen
-// sequential number used in the copied text and the pair header.
-static int drawComparativeBox(HDC hdc, int x, int y, int width,
-                                const PairAnalysisDisplay& pair,
-                                int pairIdx, int pairNumber)
-{
-    SetBkMode(hdc, TRANSPARENT);
-
-    // Measure text height
-    HFONT oldFont = (HFONT)SelectObject(hdc, g_hFontBody);
-    std::wstring interp = s2w(pair.interpretation);
-    if (interp.empty()) {
-        interp = L"Both submissions show similar style consistency.";
-    }
-
-    RECT measureRect = {x + S(50), y + S(35), x + width - S(30), y + S(500)};
-    DrawTextW(hdc, interp.c_str(), -1, &measureRect,
-              DT_LEFT | DT_WORDBREAK | DT_CALCRECT);
-    int textH = measureRect.bottom - measureRect.top;
-    int boxH = S(50) + textH + S(40);  // header + text + footer
-
-    // Box background (maroon-tinted)
-    RECT box = {x, y, x + width, y + boxH};
-    HBRUSH boxBr = CreateSolidBrush(RGB(55, 35, 42));
-    FillRect(hdc, &box, boxBr);
-    DeleteObject(boxBr);
-
-    // Gold left accent
-    RECT leftBar = {x, y, x + S(4), y + boxH};
-    HBRUSH goldBr = CreateSolidBrush(UL_GOLD);
-    FillRect(hdc, &leftBar, goldBr);
-    DeleteObject(goldBr);
-
-    // Border
-    HPEN pen = CreatePen(PS_SOLID, 1, RGB(90, 60, 70));
-    HPEN oldPen = (HPEN)SelectObject(hdc, pen);
-    HBRUSH nullBr = (HBRUSH)GetStockObject(NULL_BRUSH);
-    HBRUSH oldBr = (HBRUSH)SelectObject(hdc, nullBr);
-    Rectangle(hdc, box.left, box.top, box.right, box.bottom);
-    SelectObject(hdc, oldPen);
-    SelectObject(hdc, oldBr);
-    DeleteObject(pen);
-
-    // Title
-    SetTextColor(hdc, UL_GOLD);
-    SelectObject(hdc, g_hFontHeading);
-    RECT titleRect = {x + S(50), y + S(12), x + width - S(170), y + S(35)};
-    DrawTextW(hdc, L"COMPARATIVE AUTHORSHIP ANALYSIS",
-              -1, &titleRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-
-    // Copy findings button — top-right of the box
-    {
-        bool justCopied = (g_copyFindingsFeedbackPairIdx == pairIdx &&
-                            GetTickCount() < g_copyFindingsFeedbackUntilTick);
-        std::wstring btnLabel = justCopied ? L"\u2713  Copied" : L"\u2398  Copy findings";
-
-        SelectObject(hdc, g_hFontSmall);
-        RECT measureBtn = {0, 0, 0, 0};
-        DrawTextW(hdc, btnLabel.c_str(), -1, &measureBtn, DT_CALCRECT | DT_SINGLELINE);
-        int btnW = measureBtn.right - measureBtn.left + S(28);
-        int btnH = S(26);
-        int btnX = x + width - S(20) - btnW;
-        int btnY = y + S(12);
-        RECT btnRect = {btnX, btnY, btnX + btnW, btnY + btnH};
-
-        drawCard(hdc, btnRect,
-                 justCopied ? COLOR_SUCCESS_BG_ALT : UL_MAROON,
-                 justCopied ? COLOR_SUCCESS : UL_GOLD, 6);
-        SetTextColor(hdc, justCopied ? COLOR_SUCCESS : UL_GOLD);
-        DrawTextW(hdc, btnLabel.c_str(), -1, &btnRect,
-                  DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-
-        CopyFindingsBtnRect hit;
-        hit.r = { btnX, btnY + g_scrollY, btnX + btnW, btnY + btnH + g_scrollY };
-        hit.pairIdx = pairIdx;
-        g_copyFindingsBtnRects.push_back(hit);
-        addFocusable(g_contentFocusables, FocusKind::CopyFindingsBtn, hit.r, pairIdx, true);
-    }
-
-    // Interpretation text
-    SetTextColor(hdc, TEXT_MAIN);
-    SelectObject(hdc, g_hFontBody);
-    RECT interpRect = {x + S(50), y + S(40), x + width - S(30), y + S(40) + textH};
-    DrawTextW(hdc, interp.c_str(), -1, &interpRect,
-              DT_LEFT | DT_WORDBREAK);
-
-    // Footer disclaimer
-    SetTextColor(hdc, TEXT_DIM);
-    SelectObject(hdc, g_hFontSmall);
-    RECT discRect = {x + S(50), y + S(45) + textH, x + width - S(30), y + boxH - S(8)};
-    DrawTextW(hdc,
-        L"This report provides statistical evidence only. "
-        L"All academic integrity determinations rest with the instructor.",
-        -1, &discRect, DT_LEFT | DT_WORDBREAK);
-
-    SelectObject(hdc, oldFont);
-    return boxH;
-}
-
 // Draws a 96px collapsed summary row (spec §5.9 mockup):
 //   #1  94.9%   Rah  ↔  RanueeeOmega            Final Exam    HIGH  ▾
 //       [DNA strip A]      [DNA strip B]         token 96.7 · style 92.3
@@ -817,9 +714,9 @@ static int drawFlaggedPairCollapsedRow(HDC hdc, int x, int y, int width,
 }
 
 // Draw one flagged pair, fully expanded. pairIdx (stable flaggedPairs
-// index) drives the per-side "Show all 14 features" state and the
-// Copy findings button's feedback state; openProgress (0..1, eased)
-// eases the content in while the pair is actively opening.
+// index) drives the per-side "Show all 14 features" state;
+// openProgress (0..1, eased) eases the content in while the pair is
+// actively opening.
 // ── Tier 1 AI evidence narrative (per pair) ─────────────────────
 // Renders near the Deviations blocks inside each expanded pair card,
 // per spec: "evidence commentary, not a replacement for the raw feature
@@ -923,8 +820,12 @@ static int estimateFlaggedPairBlockHeight(const PairAnalysisDisplay& pair, int p
 // No maroon accordion bar and no box: the open pair keeps the list
 // row's own header line (#N · score · names · exam · severity · ▴),
 // sits on a band one shade lighter than the page with a 3px gold rule
-// down its left edge, and its content (comparison, AI note,
-// comparative analysis) is centered at a comfortable max width.
+// down its left edge, and its content (comparison, AI note) is
+// centered at a comfortable max width. The maroon "Comparative
+// authorship analysis" box with its Copy findings button that used to
+// close each pair was removed in 1.3.0 (at the team's request: redundant
+// with the comparison above); pair.interpretation is still built by
+// the pipeline, it just isn't shown here.
 static const int PAIR_EXP_HEADER_H   = 50;
 static const int PAIR_EXP_SUBLINE_H  = 30;
 static const int PAIR_EXP_INSET_L    = 24;  // left inset (clears the spine)
@@ -952,16 +853,6 @@ static int measurePairNarrativeHeight(HDC hdc, int width, int pairIdx) {
            (aiKeyConfigured() ? 0 : S(28));  // "Set up AI…" line
 }
 
-static int measureComparativeBoxHeight(HDC hdc, int width, const PairAnalysisDisplay& pair) {
-    std::wstring interp = s2w(pair.interpretation);
-    if (interp.empty()) interp = L"Both submissions show similar style consistency.";
-    HFONT of = (HFONT)SelectObject(hdc, g_hFontBody);
-    RECT m = {S(50), S(35), width - S(30), S(500)};
-    DrawTextW(hdc, interp.c_str(), -1, &m, DT_LEFT | DT_WORDBREAK | DT_CALCRECT);
-    SelectObject(hdc, of);
-    return S(50) + (m.bottom - m.top) + S(40);
-}
-
 // Full expanded height — the exact sum drawFlaggedPairBlock lays out.
 static int pairExpandedHeight(HDC hdc, int x, int width,
                               const PairAnalysisDisplay& pair, int pairIdx) {
@@ -969,8 +860,7 @@ static int pairExpandedHeight(HDC hdc, int x, int width,
     pairExpandedContentCol(x, width, cx, cw);
     return S(PAIR_EXP_HEADER_H) + S(PAIR_EXP_SUBLINE_H) + S(14)
          + drawPairComparison(hdc, cx, 0, cw, pair, pairIdx, 1.0f, false) + S(15)
-         + measurePairNarrativeHeight(hdc, cw, pairIdx) + S(15)
-         + measureComparativeBoxHeight(hdc, cw, pair) + S(24);
+         + measurePairNarrativeHeight(hdc, cw, pairIdx) + S(24);
 }
 
 static int drawFlaggedPairBlock(HDC hdc, int x, int y, int width,
@@ -1072,8 +962,6 @@ static int drawFlaggedPairBlock(HDC hdc, int x, int y, int width,
     y += drawPairComparison(hdc, cx, y, cw, pair, pairIdx, openProgress, true);
     y += S(15);
     y += drawPairNarrative(hdc, cx, y, cw, pairIdx);
-    y += S(15);
-    y += drawComparativeBox(hdc, cx, y, cw, pair, pairIdx, pairNumber);
     y += S(24);
 
     SelectObject(hdc, oldFont);
@@ -1113,7 +1001,6 @@ int drawFlaggedPairs(HDC hdc, int x, int y, int width)
     g_collapsedPairRowRects.clear();
     g_expandedPairHeaderRects.clear();
     g_showAllFeaturesRects.clear();
-    g_copyFindingsBtnRects.clear();
     g_sourceViewBtnRects.clear();
 
     // Count exact duplicates
@@ -1249,8 +1136,9 @@ int countVisibleFlaggedPairs() {
 }
 
 // Flagged Pairs page click handling — collapsed-row expand, expanded-
-// header collapse, "Show all 14 features" disclosure toggle, "Copy
-// findings" button, severity filter chip, and clear-filter button.
+// header collapse, "Show all 14 features" disclosure toggle, "View
+// source" buttons (the "Copy findings" button went with the
+// Comparative panel in 1.3.0).
 // Returns true if the click was handled (caller should return 0
 // without falling through), false otherwise. mx/scrolledY are already
 // in the same coordinate space ContentProc's other per-page hit-tests
@@ -1303,21 +1191,6 @@ bool handleFlaggedPairsClick(HWND hwnd, int mx, int scrolledY) {
             }
         }
         if (hitDisc) return true;
-    }
-
-    // "Copy findings" button
-    if (!g_copyFindingsBtnRects.empty()) {
-        bool hitCopy = false;
-        for (const auto& btn : g_copyFindingsBtnRects) {
-            if (mx >= btn.r.left && mx < btn.r.right &&
-                scrolledY >= btn.r.top && scrolledY < btn.r.bottom)
-            {
-                copyFindingsForPair(hwnd, btn.pairIdx);
-                hitCopy = true;
-                break;
-            }
-        }
-        if (hitCopy) return true;
     }
 
     // "View source" button
