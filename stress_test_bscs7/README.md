@@ -168,3 +168,12 @@ change it is an open decision.
   **byte-for-byte identically** (fixed seed). The planted cases are listed in
   `PLANTED`, their expected results in `EXPECT`, and the 3 known red misses in
   `EXPECT_OVERRIDE`.
+
+## Note: team test accounts
+
+`Programming1/BSCS-7/` also contains submissions from five thesis-team test
+accounts, synced from a test Google Classroom: `AMBEGUIAJansen_Rence_L`,
+`EthanSandoval`, `PARASDivino_Dale_F`, `Rah`, `RanueeeOmega` (with their
+`calss_sync_manifest.jsonl` lines). They were not generated, are not in
+`manifest.csv`, and are not real students. The golden regression outputs
+include them.

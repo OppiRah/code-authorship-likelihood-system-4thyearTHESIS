@@ -1,0 +1,297 @@
+/* CALSS public information site — one stylesheet, no framework, no
+   web fonts, no tracking. Colours follow the desktop app's tokens
+   (include/gui_common.h: MAROON_*, GOLD_*, GRAY_*). */
+
+:root {
+  --maroon-900: #3b0a11;
+  --maroon-800: #571018;
+  --maroon-700: #7a1626;
+  --maroon-600: #94202e;
+  --gold-500: #d4a537;
+  --gold-400: #e8c25f;
+  --gold-100: #f5e6bc;
+
+  --bg: #faf8f4;
+  --surface: #ffffff;
+  --text: #1f1d1d;
+  --muted: #55525a;
+  --rule: #e3ddd2;
+  --link: #7a1626;
+  --link-hover: #94202e;
+  --note-bg: #fff6dc;
+  --note-border: #c08a12;
+  --note-text: #4a3500;
+  --focus: #1a5fb4;
+
+  --radius: 10px;
+  --measure: 72ch;
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: Consolas, "Cascadia Mono", "SFMono-Regular", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17151a;
+    --surface: #211e24;
+    --text: #efebe4;
+    --muted: #b6b0b8;
+    --rule: #3a3540;
+    --link: #e8c25f;
+    --link-hover: #f5e6bc;
+    --note-bg: #2e2612;
+    --note-border: #d4a537;
+    --note-text: #f5e6bc;
+    --focus: #8ab4f8;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+}
+
+a { color: var(--link); text-underline-offset: 0.18em; }
+a:hover { color: var(--link-hover); }
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 10;
+  padding: 0.6rem 1rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--focus);
+  border-radius: var(--radius);
+}
+.skip-link:focus { top: 1rem; }
+
+/* ── Header ─────────────────────────────────────────────── */
+.site-header {
+  background: var(--maroon-900);
+  color: #fff;
+  border-bottom: 3px solid var(--gold-500);
+}
+.site-header .inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  color: #fff;
+  text-decoration: none;
+}
+.brand:hover { color: #fff; }
+.brand-mark {
+  font-weight: 800;
+  font-size: 1.35rem;
+  letter-spacing: 0.08em;
+  color: var(--gold-400);
+}
+.brand-name { font-size: 0.9rem; color: #ead9dc; }
+
+.site-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.site-nav a {
+  display: inline-block;
+  padding: 0.45rem 0.8rem;
+  border-radius: 6px;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.site-nav a:hover { background: var(--maroon-700); color: #fff; }
+.site-nav a[aria-current="page"] {
+  background: var(--maroon-700);
+  box-shadow: inset 0 -3px 0 var(--gold-500);
+}
+
+/* ── Layout ─────────────────────────────────────────────── */
+main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+}
+.prose { max-width: var(--measure); }
+
+.hero {
+  padding: 2.5rem 0 1.5rem;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 2rem;
+}
+.eyebrow {
+  margin: 0 0 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--maroon-700);
+}
+@media (prefers-color-scheme: dark) { .eyebrow { color: var(--gold-400); } }
+
+h1, h2, h3 { line-height: 1.25; }
+h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); margin: 0 0 0.75rem; }
+h2 {
+  font-size: 1.45rem;
+  margin: 2.5rem 0 0.75rem;
+  padding-top: 0.25rem;
+  border-top: 2px solid var(--gold-500);
+  display: inline-block;
+}
+h3 { font-size: 1.1rem; margin: 1.6rem 0 0.4rem; }
+.lead { font-size: 1.2rem; color: var(--muted); max-width: 60ch; margin: 0; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-top: 4px solid var(--maroon-700);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.2rem;
+}
+.card h3 { margin-top: 0; }
+.card p:last-child { margin-bottom: 0; }
+
+.callout {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 5px solid var(--maroon-700);
+  border-radius: var(--radius);
+  padding: 1rem 1.2rem;
+  margin: 1.5rem 0;
+  max-width: var(--measure);
+}
+.callout strong:first-child { color: var(--maroon-700); }
+@media (prefers-color-scheme: dark) {
+  .callout { border-left-color: var(--gold-500); }
+  .callout strong:first-child { color: var(--gold-400); }
+}
+
+/* Draft / owner-confirmation markers. Remove every one before the site
+   is used as the app's public home page (see website/README.md). */
+.draft-banner {
+  background: var(--note-bg);
+  color: var(--note-text);
+  border: 1px solid var(--note-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+}
+.confirm {
+  background: var(--note-bg);
+  color: var(--note-text);
+  border-bottom: 2px dashed var(--note-border);
+  padding: 0 0.2em;
+  font-weight: 600;
+}
+
+/* ── Tables ─────────────────────────────────────────────── */
+.table-wrap {
+  overflow-x: auto;
+  margin: 1rem 0 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+caption { text-align: left; padding: 0.75rem 1rem 0; font-weight: 700; }
+th, td { text-align: left; vertical-align: top; padding: 0.65rem 1rem; border-bottom: 1px solid var(--rule); }
+thead th { background: var(--maroon-800); color: #fff; font-weight: 600; }
+tbody tr:last-child td { border-bottom: 0; }
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--rule) 55%, transparent);
+  padding: 0.05em 0.3em;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+
+.toc {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.2rem;
+  margin: 1.5rem 0;
+  max-width: var(--measure);
+}
+.toc h2 { border: 0; margin: 0 0 0.4rem; font-size: 1rem; padding: 0; }
+.toc ol { margin: 0; padding-left: 1.3rem; columns: 2 18rem; column-gap: 2rem; }
+.toc li { break-inside: avoid; }
+
+.meta { color: var(--muted); font-size: 0.95rem; }
+
+/* ── Footer ─────────────────────────────────────────────── */
+.site-footer {
+  border-top: 1px solid var(--rule);
+  background: var(--surface);
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+.site-footer .inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  justify-content: space-between;
+}
+.site-footer ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; }
+.site-footer p { margin: 0; max-width: 60ch; }
+
+@media (max-width: 560px) {
+  body { font-size: 1rem; }
+  .brand-name { display: none; }
+  .hero { padding-top: 1.25rem; }
+  th, td { padding: 0.55rem 0.7rem; }
+  /* Keep columns readable; the wrapper scrolls sideways instead. */
+  .table-wrap table { min-width: 40rem; }
+  .table-wrap caption::after {
+    content: " (scroll sideways)";
+    font-weight: 400;
+    color: var(--muted);
+  }
+}
+
+@media print {
+  .site-header, .site-nav, .skip-link, .site-footer ul { display: none; }
+  body { background: #fff; color: #000; }
+  a { color: #000; }
+}

@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — CALSS</title>
+<meta name="description" content="How the CALSS desktop application handles Google Classroom data, student submissions, sign-in tokens and optional Gemini requests.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="inner">
+    <a class="brand" href="index.html">
+      <span class="brand-mark">CALSS</span>
+      <span class="brand-name">Code Authorship Likelihood Scoring System</span>
+    </a>
+    <nav class="site-nav" aria-label="Main">
+      <ul>
+        <li><a href="index.html">Home</a></li>
+        <li><a href="privacy.html" aria-current="page">Privacy Policy</a></li>
+        <li><a href="terms.html">Terms of Service</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="draft-banner" role="note">
+    <strong>Draft for project-owner and institutional review — not legal advice.</strong>
+    It describes CALSS version 1.3.1 as implemented. Items marked
+    <span class="confirm">like this</span> need confirmation, and the university's Data
+    Protection Officer or legal office should review the whole policy before it is published.
+  </div>
+
+  <div class="prose">
+    <p class="eyebrow">CALSS</p>
+    <h1>Privacy Policy</h1>
+    <p class="meta">
+      Applies to: CALSS desktop application, version 1.3.1 and this website.<br>
+      Effective date: <span class="confirm">[date — to be set when published]</span>
+    </p>
+
+    <nav class="toc" aria-label="On this page">
+      <h2>On this page</h2>
+      <ol>
+        <li><a href="#summary">Summary</a></li>
+        <li><a href="#who">Who we are</a></li>
+        <li><a href="#local">Files you analyze</a></li>
+        <li><a href="#google">Google user data</a></li>
+        <li><a href="#use">How Google data is used</a></li>
+        <li><a href="#storage">Where data is stored and for how long</a></li>
+        <li><a href="#tokens">Google sign-in tokens</a></li>
+        <li><a href="#gemini">Optional Gemini explanations</a></li>
+        <li><a href="#sharing">Sharing and third parties</a></li>
+        <li><a href="#revoke">Disconnecting Google and deleting data</a></li>
+        <li><a href="#security">Security measures and limitations</a></li>
+        <li><a href="#shared-pcs">Shared Windows accounts</a></li>
+        <li><a href="#rights">Students' information and your rights</a></li>
+        <li><a href="#website">This website</a></li>
+        <li><a href="#changes">Changes to this policy</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ol>
+    </nav>
+
+    <h2 id="summary">1. Summary</h2>
+    <ul>
+      <li>CALSS runs on the instructor's own Windows computer. There is no CALSS server, user account, analytics, advertising or telemetry.</li>
+      <li>Google Classroom import is optional. With the instructor's permission it reads class, assignment, submission and roster information and downloads students' <code>.c</code> files. It never changes anything in Google Classroom or Google Drive.</li>
+      <li>Downloaded files and analysis records stay on that computer. CALSS does not send them to the CALSS team.</li>
+      <li>Gemini explanations are optional and use the instructor's own Gemini API key. When used, student names, class labels and scores (not source code) are sent to Google's Gemini service.</li>
+      <li>CALSS does not sell Google user data, use it for advertising, or use it to train AI models.</li>
+    </ul>
+
+    <h2 id="who">2. Who we are</h2>
+    <p>
+      CALSS (Code Authorship Likelihood Scoring System) is developed by the CALSS thesis team,
+      College of Computer Studies, University of Luzon, as a Computer Science thesis project.
+      Data controller for this policy: <span class="confirm">[thesis team / University of Luzon — to be confirmed]</span>.
+      Contact details are in <a href="#contact">section 16</a>.
+    </p>
+    <p>
+      When an instructor uses CALSS to analyze students' work, the instructor and their
+      institution remain responsible for that student information under the institution's
+      policies and applicable law, <span class="confirm">including the Philippine Data Privacy
+      Act of 2012 (Republic Act No. 10173) — applicable law to be confirmed by the university</span>.
+    </p>
+
+    <h2 id="local">3. Files you analyze</h2>
+    <p>
+      CALSS analyzes C source files (<code>.c</code>) in a folder the instructor selects, or
+      files it downloaded from Google Classroom. It reads each file, computes similarity and
+      coding-style measurements, and shows the results on screen. Student names are taken from
+      the file names. The source files themselves are not modified and are not uploaded anywhere
+      by CALSS.
+    </p>
+
+    <h2 id="google">4. Google user data CALSS accesses</h2>
+    <p>
+      Google Classroom import starts only when the instructor chooses to sync. CALSS opens the
+      instructor's web browser at Google's sign-in page; CALSS never sees the instructor's Google
+      password. If the instructor agrees, Google grants the following read-only permissions
+      (OAuth scopes):
+    </p>
+  </div>
+
+  <div class="table-wrap" role="region" aria-label="Scrollable table" tabindex="0">
+    <table>
+      <caption>Permissions requested and how each is used</caption>
+      <thead>
+        <tr><th scope="col">Permission (scope)</th><th scope="col">What CALSS reads</th><th scope="col">Why</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>View your Google Classroom classes<br><code>classroom.courses.readonly</code></td>
+          <td>Active classes: ID, name and section. (Google's response also includes the class enrollment code; CALSS does not display or store it.)</td>
+          <td>To let the instructor choose which class to import from, and to label results by class.</td>
+        </tr>
+        <tr>
+          <td>View coursework and grades for students in classes you teach<br><code>classroom.coursework.students.readonly</code></td>
+          <td>Assignments in the selected class: ID, title and description. Grades are not read.</td>
+          <td>To let the instructor choose assignments, and to group exam, quiz and activity files from the assignment title.</td>
+        </tr>
+        <tr>
+          <td>View student submissions<br><code>classroom.student-submissions.students.readonly</code></td>
+          <td>For the selected assignments: each submission's state (turned in / returned), the student's Google user ID, and the Drive file ID, name and type of each attachment.</td>
+          <td>To find the turned-in <code>.c</code> files to download.</td>
+        </tr>
+        <tr>
+          <td>View your Google Classroom class rosters<br><code>classroom.rosters.readonly</code></td>
+          <td>Each submitting student's given name and family name (from their Classroom profile).</td>
+          <td>To label each downloaded file with the student's name.</td>
+        </tr>
+        <tr>
+          <td>See and download all your Google Drive files<br><code>drive.readonly</code></td>
+          <td>Only the content of the <code>.c</code> files attached to the selected assignments' turned-in or returned submissions.</td>
+          <td>Classroom attachments are Drive files; this permission is the one Google requires to download their content.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="prose">
+    <p>
+      Google's consent screen describes the Drive permission broadly ("see and download all your
+      Google Drive files"). CALSS only requests the specific files listed in the submissions the
+      instructor selected; it does not list, search or open any other Drive files.
+    </p>
+    <p>
+      CALSS does not request the instructor's or students' e-mail addresses, profile photos,
+      grades, guardian information, or any write access.
+    </p>
+
+    <h2 id="use">5. How Google user data is used</h2>
+    <p>
+      Data received from Google APIs is used only to provide CALSS's user-facing import and
+      analysis features described above: listing classes and assignments, downloading the
+      selected submissions, labelling them by student and class, and analyzing them on the
+      instructor's computer.
+    </p>
+    <p>
+      CALSS's use and transfer to any other app of information received from Google APIs will
+      adhere to the
+      <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+      including the Limited Use requirements.
+      <span class="confirm">Do not publish this sentence until the Gemini issue in section 8
+      is resolved — see docs/GOOGLE_OAUTH_PRODUCTION_READINESS.md.</span>
+    </p>
+    <p>In particular, CALSS does not:</p>
+    <ul>
+      <li>sell Google user data or transfer it to advertising platforms, data brokers or information resellers;</li>
+      <li>use Google user data for advertising, credit-worthiness or lending decisions;</li>
+      <li>use Google user data to create, train or improve any artificial-intelligence or machine-learning model;</li>
+      <li>send Google user data to the CALSS team or to any CALSS-operated server (there is none);</li>
+      <li>allow people to read Google user data except the instructor using CALSS on their own computer.</li>
+    </ul>
+
+    <h2 id="storage">6. Where data is stored and for how long</h2>
+    <p>Everything below is stored only on the computer where CALSS is installed.</p>
+  </div>
+
+  <div class="table-wrap" role="region" aria-label="Scrollable table" tabindex="0">
+    <table>
+      <caption>Data CALSS keeps on the computer</caption>
+      <thead>
+        <tr><th scope="col">What</th><th scope="col">Location</th><th scope="col">Contains</th><th scope="col">Kept until</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Google Classroom downloads</td>
+          <td><code>%LOCALAPPDATA%\CALSS\Classroom</code> (per Windows account)</td>
+          <td>Students' <code>.c</code> files, named with the assignment category and the student's name; a list file (<code>calss_sync_manifest.jsonl</code>) recording each file's assignment title and class name/section.</td>
+          <td>The instructor deletes them, or CALSS is uninstalled by the same Windows account (the uninstaller deletes this folder). Syncing again replaces files of the same name.</td>
+        </tr>
+        <tr>
+          <td>Google sign-in</td>
+          <td>Windows Credential Manager, entry <code>CALSS/GoogleClassroomToken</code> (per Windows account)</td>
+          <td>Google access token, refresh token and expiry time.</td>
+          <td>Removed manually (see <a href="#revoke">section 10</a>). Not removed by uninstalling.</td>
+        </tr>
+        <tr>
+          <td>Gemini API key</td>
+          <td>Windows Credential Manager, entry <code>CALSS/GeminiApiKey</code></td>
+          <td>The instructor's own Gemini key.</td>
+          <td>Removed in File &gt; AI Settings, or manually. Not removed by uninstalling.</td>
+        </tr>
+        <tr>
+          <td>Last session</td>
+          <td><code>%LOCALAPPDATA%\CALSS\workspace.json</code></td>
+          <td>Folder path, file count, and the last page, class and student/file names viewed. No scores or source code.</td>
+          <td>Overwritten by the next session; kept after uninstalling.</td>
+        </tr>
+        <tr>
+          <td>Settings</td>
+          <td><code>%LOCALAPPDATA%\CALSS</code></td>
+          <td>The CALSS application's own OAuth client configuration and the chosen Gemini model. No personal data.</td>
+          <td>Kept after uninstalling.</td>
+        </tr>
+        <tr>
+          <td>Audit log</td>
+          <td><code>%PROGRAMDATA%\CALSS\audit.log</code> (shared by all Windows accounts on the computer)</td>
+          <td>Date and time of folder selections, analysis runs (folder path, file and pair counts) and settings changes; the student's name when a per-student report is generated.</td>
+          <td>Append-only; kept after uninstalling. It can be deleted by a computer administrator.</td>
+        </tr>
+        <tr>
+          <td>Per-student reports</td>
+          <td><code>Documents\CALSS Reports</code></td>
+          <td>HTML report with one student's name and style measurements, created only when the instructor clicks "Generate Similarity Report".</td>
+          <td>The instructor deletes them; kept after uninstalling.</td>
+        </tr>
+        <tr>
+          <td>Imported files</td>
+          <td><code>Documents\CALSS Imports</code></td>
+          <td>Copies of <code>.c</code> files the instructor imports by hand.</td>
+          <td>The instructor deletes them; kept after uninstalling.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="prose">
+    <p>
+      Analysis results (scores, flagged pairs) are kept in memory while CALSS is open and are not
+      saved by CALSS, except where listed above. CALSS has no automatic deletion schedule;
+      instructors should delete downloaded submissions when they are no longer needed, in line
+      with their institution's record-retention rules.
+    </p>
+
+    <h2 id="tokens">7. Google sign-in tokens</h2>
+    <p>
+      After the instructor signs in, Google returns an access token (valid for about an hour)
+      and a refresh token that lets CALSS stay signed in. CALSS stores them in Windows Credential
+      Manager for the current Windows account, not in a plain file. If Windows refuses to save
+      them, CALSS keeps them only in memory for that session and tells the instructor.
+    </p>
+    <p>
+      CALSS sends these tokens only to Google (<code>oauth2.googleapis.com</code>,
+      <code>classroom.googleapis.com</code> and <code>www.googleapis.com</code>) over HTTPS.
+    </p>
+
+    <h2 id="gemini">8. Optional Gemini explanations</h2>
+    <p>
+      Gemini is used only if the instructor has saved their own Gemini API key in
+      <em>File &gt; AI Settings</em> and ticks <em>Include AI summary</em> before running an
+      analysis. CALSS then sends two requests per analysis (each retried once if Google reports the
+      model as unavailable) to Google's Gemini API
+      (<code>generativelanguage.googleapis.com</code>) containing, for up to 50 of the
+      highest-scoring flagged pairs:
+    </p>
+    <ul>
+      <li>the two students' names as they appear in the file names — for files imported from Google Classroom, these come from the Classroom roster;</li>
+      <li>the class label of each pair — for Classroom imports, the Classroom class name and section;</li>
+      <li>similarity and authorship-consistency scores, reliability levels and the names and numeric values of the coding-style features that differ from each student's profile.</li>
+    </ul>
+    <p>
+      The text of the students' source code is not included in these requests. Testing a key in
+      AI Settings sends only the key, to list the models it can use.
+    </p>
+    <p>
+      Requests to Gemini are governed by Google's
+      <a href="https://ai.google.dev/gemini-api/terms">Gemini API Additional Terms of Service</a>
+      and the agreement attached to the instructor's own API key. Under those terms, Google may
+      use content sent with an <strong>unpaid (free-tier)</strong> key to improve its products,
+      and human reviewers may read it; Google asks that sensitive, confidential or personal
+      information not be sent to unpaid services. For paid usage Google states it does not use
+      prompts to improve its products.
+    </p>
+    <p>
+      <span class="confirm">Project-owner decision required before publishing: because student names
+      from Google Classroom can reach Gemini, CALSS must either remove names and class labels from
+      Gemini requests, require a paid Gemini key, or not allow Gemini on Classroom-imported data.
+      Update this section to describe whichever is chosen.</span>
+    </p>
+
+    <h2 id="sharing">9. Sharing and third-party services</h2>
+    <p>CALSS does not share data with the CALSS team or anyone else. It communicates only with:</p>
+    <ul>
+      <li><strong>Google OAuth, Google Classroom API and Google Drive API</strong> — when the instructor syncs Classroom (section 4). Google's own <a href="https://policies.google.com/privacy">Privacy Policy</a> applies to the instructor's Google account.</li>
+      <li><strong>Google Gemini API</strong> — only if the instructor turns it on (section 8).</li>
+    </ul>
+    <p>
+      CALSS may disclose information only where required by law; since the CALSS team does not
+      hold any CALSS user data, such requests would normally be directed to the institution that
+      holds the computer. CALSS contains no advertising, analytics, crash reporting or other
+      third-party code that sends data elsewhere.
+    </p>
+
+    <h2 id="revoke">10. Disconnecting Google and deleting data</h2>
+    <p>CALSS 1.3.1 does not have a "Disconnect Google account" button. To disconnect fully:</p>
+    <ol>
+      <li><strong>Revoke CALSS's access at Google:</strong> go to
+        <a href="https://myaccount.google.com/connections">myaccount.google.com/connections</a>
+        (Google Account &gt; Security &gt; Your connections to third-party apps &amp; services),
+        select CALSS and remove its access. This stops the stored tokens from working.</li>
+      <li><strong>Delete the stored sign-in on the computer:</strong> open Control Panel &gt;
+        Credential Manager &gt; Windows Credentials, find <code>CALSS/GoogleClassroomToken</code>
+        under Generic Credentials, and choose Remove. (Do the same for
+        <code>CALSS/GeminiApiKey</code> to remove the Gemini key, or use File &gt; AI Settings.)</li>
+      <li><strong>Delete downloaded submissions:</strong> delete the folder
+        <code>%LOCALAPPDATA%\CALSS\Classroom</code>, or uninstall CALSS while signed in to the same
+        Windows account.</li>
+      <li><strong>Delete other CALSS data</strong> as needed: <code>%LOCALAPPDATA%\CALSS</code>,
+        <code>Documents\CALSS Reports</code>, <code>Documents\CALSS Imports</code>, and (computer
+        administrator) <code>%PROGRAMDATA%\CALSS\audit.log</code>.</li>
+    </ol>
+    <p>
+      Uninstalling CALSS removes the program and the Classroom downloads of the Windows account that
+      runs the uninstaller. It does not remove the items in steps 2 and 4, and it does not revoke
+      access at Google (step 1).
+    </p>
+
+    <h2 id="security">11. Security measures and their limitations</h2>
+    <p>What CALSS does:</p>
+    <ul>
+      <li>All traffic to Google uses HTTPS.</li>
+      <li>Sign-in uses Google's OAuth flow in the instructor's own browser; CALSS never handles the Google password.</li>
+      <li>The sign-in callback listener accepts connections only from the same computer (<code>127.0.0.1</code>), checks a random <code>state</code> value, and stops after three minutes.</li>
+      <li>Tokens and the Gemini key are stored in Windows Credential Manager rather than in plain files.</li>
+      <li>Only read-only Google permissions are requested.</li>
+    </ul>
+    <p>Limitations you should know about:</p>
+    <ul>
+      <li>Downloaded submissions, the last-session file and reports are ordinary, unencrypted files protected only by normal Windows account permissions.</li>
+      <li>Anyone who can sign in to the same Windows account can use the saved Google sign-in and see the downloaded files (section 12).</li>
+      <li>The audit log is readable by every Windows account on the computer.</li>
+      <li>CALSS is not code-signed and has not had an independent security assessment.</li>
+      <li>No method of storage or transmission is completely secure.</li>
+    </ul>
+
+    <h2 id="shared-pcs">12. Shared Windows accounts</h2>
+    <p>
+      Windows Credential Manager and <code>%LOCALAPPDATA%</code> separate data by Windows account,
+      not by person. If several instructors share one Windows login on a laboratory computer, any of
+      them can use another's saved Google Classroom sign-in and see their downloaded submissions.
+      Each instructor should use their own Windows account where possible, and should revoke access
+      and delete the stored sign-in (section 10) before leaving a shared account.
+    </p>
+
+    <h2 id="rights">13. Students' information and your rights</h2>
+    <p>
+      Students' names and work are processed by the instructor for the instructor's course, under the
+      institution's authority. Students who want to know how their work was reviewed, or to exercise
+      their data-privacy rights, should contact their instructor or the institution's
+      <span class="confirm">Data Protection Officer [contact to be confirmed by the university]</span>.
+    </p>
+    <p>
+      Because CALSS has no server, the CALSS team cannot see, export or delete data stored on an
+      instructor's computer; the deletion steps in section 10 are carried out on that computer.
+      Instructors may contact us (section 16) with questions about this policy.
+    </p>
+
+    <h2 id="website">14. This website</h2>
+    <p>
+      This website is a set of static pages. It uses no cookies, analytics, advertising, forms or
+      third-party scripts, and it does not collect any information from visitors. The hosting
+      provider may keep standard server logs (such as IP address and time of request) under its own
+      privacy policy: <span class="confirm">[hosting provider and link — to be filled in when hosting is chosen]</span>.
+    </p>
+
+    <h2 id="changes">15. Changes to this policy</h2>
+    <p>
+      If a future CALSS version handles data differently, this policy will be updated before that
+      version is distributed, and the effective date above will change. Earlier versions are kept in
+      the project's source repository.
+    </p>
+
+    <h2 id="contact">16. Contact</h2>
+    <p>
+      CALSS thesis team, College of Computer Studies, University of Luzon<br>
+      E-mail: <span class="confirm">[contact e-mail address — to be confirmed]</span><br>
+      Postal address: <span class="confirm">[college address — to be confirmed]</span>
+    </p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="inner">
+    <p>CALSS — Code Authorship Likelihood Scoring System. A thesis project of the College of Computer Studies, University of Luzon.</p>
+    <ul>
+      <li><a href="index.html">Home</a></li>
+      <li><a href="privacy.html">Privacy Policy</a></li>
+      <li><a href="terms.html">Terms of Service</a></li>
+    </ul>
+  </div>
+</footer>
+</body>
+</html>

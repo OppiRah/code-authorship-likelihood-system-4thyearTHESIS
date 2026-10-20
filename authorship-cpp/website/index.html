@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CALSS — Code Authorship Likelihood Scoring System</title>
+<meta name="description" content="CALSS is a Windows desktop tool that helps programming instructors review student C submissions for code similarity and coding-style consistency. Findings always require human review.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="inner">
+    <a class="brand" href="index.html">
+      <span class="brand-mark">CALSS</span>
+      <span class="brand-name">Code Authorship Likelihood Scoring System</span>
+    </a>
+    <nav class="site-nav" aria-label="Main">
+      <ul>
+        <li><a href="index.html" aria-current="page">Home</a></li>
+        <li><a href="privacy.html">Privacy Policy</a></li>
+        <li><a href="terms.html">Terms of Service</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="draft-banner" role="note">
+    <strong>Draft for project-owner and institutional review.</strong>
+    Highlighted items marked <span class="confirm">like this</span> still need confirmation before this page is published.
+  </div>
+
+  <section class="hero">
+    <p class="eyebrow">Windows desktop application &middot; Version 1.3.1</p>
+    <h1>CALSS helps instructors decide which C submissions deserve a closer look.</h1>
+    <p class="lead">
+      The Code Authorship Likelihood Scoring System compares students' C programming
+      submissions for code similarity and checks whether each submission is consistent
+      with that student's own coding style. It is a decision-support tool: it points
+      to submissions worth reviewing, and the instructor decides what they mean.
+    </p>
+  </section>
+
+  <div class="callout" role="note">
+    <strong>CALSS findings are not proof of plagiarism, cheating or misconduct.</strong>
+    Similarity and style scores can be high for legitimate reasons — shared starter
+    code, a common textbook solution, a short or highly constrained problem, or
+    students who learned from the same examples. Every flagged result must be reviewed
+    by the instructor, together with other evidence and the institution's academic
+    integrity procedures, before any conclusion is reached about a student.
+  </div>
+
+  <section aria-labelledby="who">
+    <h2 id="who">Who CALSS is for</h2>
+    <div class="prose">
+      <p>
+        CALSS is intended for programming instructors and other authorized academic users
+        at <span class="confirm">University of Luzon, College of Computer Studies</span>.
+        It was developed as a fourth-year Computer Science thesis project and is installed
+        on approved laboratory instructor and administrator computers. It is not a
+        consumer product and is not offered to students.
+      </p>
+    </div>
+  </section>
+
+  <section aria-labelledby="what">
+    <h2 id="what">What CALSS does</h2>
+    <div class="grid">
+      <article class="card">
+        <h3>Pairwise similarity</h3>
+        <p>Tokenizes each <code>.c</code> file and compares every relevant pair of submissions, so that structurally similar code is detected even when names or spacing change.</p>
+      </article>
+      <article class="card">
+        <h3>Coding-style profile</h3>
+        <p>Measures 14 stylometric features — such as identifier length, naming convention, comment density and layout — and builds a profile from each student's own earlier submissions.</p>
+      </article>
+      <article class="card">
+        <h3>Authorship consistency</h3>
+        <p>A k-nearest-neighbour model (k = 3) estimates how consistent a new submission is with the student's established style, and reports how reliable that estimate is.</p>
+      </article>
+      <article class="card">
+        <h3>Flagged pairs for review</h3>
+        <p>Pairs that cross the similarity thresholds are listed with the evidence behind them, so the instructor can open both files side by side and judge for themselves.</p>
+      </article>
+    </div>
+    <p class="prose">
+      All analysis runs on the instructor's own Windows computer. CALSS has no CALSS-operated
+      server, account system, analytics or telemetry.
+    </p>
+  </section>
+
+  <section aria-labelledby="classroom">
+    <h2 id="classroom">Optional: Google Classroom import</h2>
+    <div class="prose">
+      <p>
+        Instructors can choose to sign in with their Google account so that CALSS can
+        download students' turned-in <code>.c</code> files from Google Classroom, instead of
+        copying them by hand. This feature is optional; CALSS works fully with files the
+        instructor selects from their own computer.
+      </p>
+      <p>When the instructor signs in, CALSS asks Google for read-only access to:</p>
+      <ul>
+        <li>the list of the instructor's active Google Classroom classes;</li>
+        <li>the coursework (assignments) in a class the instructor selects;</li>
+        <li>students' submissions to the selected assignments;</li>
+        <li>student names from the class roster, to label the downloaded files; and</li>
+        <li>Google Drive, to download the <code>.c</code> files attached to those submissions.</li>
+      </ul>
+      <p>
+        CALSS never creates, changes, grades or deletes anything in Google Classroom or
+        Google Drive. Downloaded files are kept only on the instructor's computer. The
+        <a href="privacy.html">Privacy Policy</a> explains exactly what is accessed, where it
+        is stored and how to remove it.
+      </p>
+    </div>
+  </section>
+
+  <section aria-labelledby="gemini">
+    <h2 id="gemini">Optional: Gemini explanations</h2>
+    <div class="prose">
+      <p>
+        If an instructor enters their own Google Gemini API key and ticks
+        <em>Include AI summary</em>, CALSS asks Google's Gemini service to write short,
+        plain-language explanations of the flagged results. Gemini does not compute any
+        score, flag or ranking — CALSS does that — and its text is only an aid to reading
+        the evidence.
+      </p>
+      <p>
+        These requests contain student names, class labels, scores and coding-style
+        measurements for up to 50 flagged pairs. They do not contain the text of the
+        students' source files. Gemini is off unless the instructor configures a key
+        and chooses to use it. See the <a href="privacy.html#gemini">Privacy Policy</a> for
+        details and for the conditions Google places on its free Gemini tier.
+      </p>
+    </div>
+  </section>
+
+  <section aria-labelledby="contact">
+    <h2 id="contact">Contact</h2>
+    <div class="prose">
+      <p>
+        CALSS is maintained by the CALSS thesis team, College of Computer Studies,
+        University of Luzon.
+      </p>
+      <p>
+        Questions, privacy requests and concerns:
+        <span class="confirm">[contact e-mail address — to be confirmed by the project owner]</span>
+      </p>
+      <p>
+        Thesis adviser / institutional contact:
+        <span class="confirm">[name and office — to be confirmed by the project owner]</span>
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="inner">
+    <p>CALSS — Code Authorship Likelihood Scoring System. A thesis project of the College of Computer Studies, University of Luzon.</p>
+    <ul>
+      <li><a href="index.html">Home</a></li>
+      <li><a href="privacy.html">Privacy Policy</a></li>
+      <li><a href="terms.html">Terms of Service</a></li>
+    </ul>
+  </div>
+</footer>
+</body>
+</html>
